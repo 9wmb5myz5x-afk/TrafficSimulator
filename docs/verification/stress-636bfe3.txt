@@ -1,0 +1,16 @@
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    1      2.00    1943  12380           0   2.540  13968  gridlocks=55
+stressCity right    2      2.00    1991  12682           0   2.558  14378  gridlocks=34
+stressCity left    1      2.00    1875  12407           0   2.480  13968  gridlocks=29
+stressCity left    2      2.00    1918  12629           0   2.439  14378  gridlocks=20
+SOAK PASS
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    3      2.00    1926  12684           0   2.602  14294  gridlocks=47
+stressCity right    4      2.00    1900  12492           0   2.411  13938  gridlocks=30
+stressCity left    3      2.00    1915  12697           0   2.644  14294  gridlocks=32
+stressCity left    4      2.00    1925  12397           0   2.527  13938  gridlocks=43
+SOAK PASS
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    5      2.00    1866  12531           0   2.469  13912  gridlocks=23
+stressCity left    5      2.00    1815  12437           0   2.438  13912  gridlocks=37
+SOAK PASS

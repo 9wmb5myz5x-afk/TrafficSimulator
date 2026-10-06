@@ -1,0 +1,228 @@
+name: CI
+
+# Level 1-3 (engine unit/behaviour/soak tests + CLI) run on Linux and macOS.
+# Level 4-5 (app build, XCUITests, screenshots) run on a macOS runner.
+
+# Documentation-only pushes don't run CI.
+on:
+  push:
+    branches: ["**", "!ci-screenshots/**"]
+    paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-linux:
+    name: Engine (Linux, swift test)
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build --package-path TrafficEngine -c release
+      - name: Test
+        run: swift test --package-path TrafficEngine -c release -Xswiftc -enable-testing
+
+  app-macos:
+    name: App (macOS, build + UI tests)
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      XCODEGEN_VERSION: "2.46.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          curl -fsSL -o xcodegen.zip "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          unzip -q xcodegen.zip -d xcodegen-dist
+          echo "$PWD/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Regenerate project and check for drift
+        run: |
+          xcodegen generate
+          git diff --stat -- TrafficSimulator.xcodeproj || true
+          if ! git diff --quiet -- TrafficSimulator.xcodeproj; then
+            echo "::warning::TrafficSimulator.xcodeproj differs from 'xcodegen generate' output"
+            git diff -- TrafficSimulator.xcodeproj | head -200
+            mkdir -p artifacts && cp -R TrafficSimulator.xcodeproj artifacts/
+          fi
+          xcodebuild -list -project TrafficSimulator.xcodeproj
+
+      - name: Engine tests (macOS)
+        run: swift test --package-path TrafficEngine -c release -Xswiftc -enable-testing
+
+      - name: Build for testing (iPhone)
+        run: |
+          mkdir -p build
+          SIM=$(python3 scripts/pick-simulator.py "iPhone 16 Pro" "iPhone 15 Pro" "iPhone")
+          echo "SIM_IPHONE=$SIM" >> "$GITHUB_ENV"
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project TrafficSimulator.xcodeproj -scheme TrafficSimulator \
+            -destination "id=$SIM" -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO | tee build/build-iphone.log | grep -E "error:|warning:|BUILD" || true
+          grep -q "TEST BUILD SUCCEEDED" build/build-iphone.log
+
+      - name: Boot simulator
+        run: |
+          xcrun simctl boot "$SIM_IPHONE" || true
+          xcrun simctl bootstatus "$SIM_IPHONE" -b
+
+      - name: UI tests (iPhone)
+        run: |
+          mkdir -p artifacts/screenshots
+          set -o pipefail
+          TEST_RUNNER_SCREENSHOT_DIR="$PWD/artifacts/screenshots" \
+          xcodebuild test-without-building \
+            -project TrafficSimulator.xcodeproj -scheme TrafficSimulator \
+            -destination "id=$SIM_IPHONE" -derivedDataPath build/DerivedData \
+            -resultBundlePath artifacts/UITests-iPhone.xcresult | tail -40
+
+      - name: Collect launch diagnostics
+        if: failure()
+        run: |
+          D=artifacts/screenshots/diagnostics
+          mkdir -p "$D"
+          cp ~/Library/Logs/DiagnosticReports/*TrafficSimulator* "$D/" 2>/dev/null || true
+          find ~/Library/Developer/CoreSimulator/Devices/"$SIM_IPHONE" -name "*TrafficSimulator*.ips" -exec cp {} "$D/" \; 2>/dev/null || true
+          xcrun simctl spawn "$SIM_IPHONE" log show --last 20m --style compact \
+            --predicate 'process == "TrafficSimulator" OR (process == "SpringBoard" AND eventMessage CONTAINS "TrafficSimulator")' \
+            2>/dev/null | tail -400 > "$D/app-log.txt" || true
+          xcrun xcresulttool get test-results tests --path artifacts/UITests-iPhone.xcresult > "$D/test-results.json" 2>/dev/null || true
+          ls -la "$D"
+
+      # Artifact blobs are not reachable from every dev environment, so the
+      # screenshots are also force-pushed to a throwaway git branch.
+      - name: Publish screenshots to ci-screenshots/<branch>
+        if: always() && github.event_name == 'push'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -d artifacts/screenshots ] || exit 0
+          TMP=$(mktemp -d)
+          cp -R artifacts/screenshots/. "$TMP/"
+          [ -f build/build-iphone.log ] && grep -E "warning:|error:" build/build-iphone.log | sort -u > "$TMP/build-warnings.txt" || true
+          # The regenerated project (when it drifted), so it can be committed back.
+          [ -d artifacts/TrafficSimulator.xcodeproj ] && cp -R artifacts/TrafficSimulator.xcodeproj "$TMP/" || true
+          cd "$TMP"
+          echo "$GITHUB_SHA" > SOURCE_SHA
+          git init -q && git checkout -q -b publish
+          git -c user.name=ci-bot -c user.email=ci-bot@users.noreply.github.com add -A
+          git -c user.name=ci-bot -c user.email=ci-bot@users.noreply.github.com commit -qm "CI screenshots for $GITHUB_SHA"
+          git push -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "publish:refs/heads/ci-screenshots/${GITHUB_REF_NAME}"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-artifacts
+          path: |
+            artifacts
+            build/build-iphone.log
+          if-no-files-found: ignore
+
+  # The same app on a small iPhone and an iPad: launch, the game-layer tests
+  # (build a town by gestures, save/load, corrupt save, rotate/background)
+  # and the inspector/overlay/stats screenshots.
+  app-devices:
+    name: App (${{ matrix.device }})
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: iPad
+            prefixes: '"iPad Pro 11" "iPad Pro" "iPad Air" "iPad"'
+            slug: ipad
+          - device: iPhone SE
+            prefixes: '"iPhone SE" "iPhone 16e" "iPhone 13 mini" "iPhone 16"'
+            slug: iphone-se
+    env:
+      XCODEGEN_VERSION: "2.46.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+
+      - name: Install XcodeGen and regenerate
+        run: |
+          curl -fsSL -o xcodegen.zip "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          unzip -q xcodegen.zip -d xcodegen-dist
+          xcodegen-dist/xcodegen/bin/xcodegen generate
+
+      - name: Build for testing
+        run: |
+          mkdir -p build
+          SIM=$(python3 scripts/pick-simulator.py ${{ matrix.prefixes }})
+          echo "SIM=$SIM" >> "$GITHUB_ENV"
+          xcrun simctl list devices | grep "$SIM"
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project TrafficSimulator.xcodeproj -scheme TrafficSimulator \
+            -destination "id=$SIM" -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO | tee build/build.log | grep -E "error:|warning:|BUILD" || true
+          grep -q "TEST BUILD SUCCEEDED" build/build.log
+
+      - name: Boot simulator
+        run: |
+          xcrun simctl boot "$SIM" || true
+          xcrun simctl bootstatus "$SIM" -b
+
+      - name: UI tests
+        run: |
+          mkdir -p artifacts/screenshots
+          set -o pipefail
+          TEST_RUNNER_SCREENSHOT_DIR="$PWD/artifacts/screenshots" \
+          xcodebuild test-without-building \
+            -project TrafficSimulator.xcodeproj -scheme TrafficSimulator \
+            -destination "id=$SIM" -derivedDataPath build/DerivedData \
+            -only-testing:TrafficSimulatorUITests/LaunchSmokeTests \
+            -only-testing:TrafficSimulatorUITests/GameplayTests \
+            -only-testing:TrafficSimulatorUITests/ScreenshotTests/testInspectorStatsAndOverlays \
+            -resultBundlePath artifacts/UITests.xcresult | tail -40
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          D=artifacts/screenshots/diagnostics
+          mkdir -p "$D"
+          find ~/Library/Developer/CoreSimulator/Devices/"$SIM" -name "*TrafficSimulator*.ips" -exec cp {} "$D/" \; 2>/dev/null || true
+          xcrun xcresulttool get test-results tests --path artifacts/UITests.xcresult > "$D/test-results.json" 2>/dev/null || true
+
+      - name: Publish screenshots to ci-screenshots/<branch>-<device>
+        if: always() && github.event_name == 'push'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -d artifacts/screenshots ] || exit 0
+          TMP=$(mktemp -d)
+          cp -R artifacts/screenshots/. "$TMP/"
+          [ -f build/build.log ] && grep -E "warning:|error:" build/build.log | sort -u > "$TMP/build-warnings.txt" || true
+          cd "$TMP"
+          echo "$GITHUB_SHA" > SOURCE_SHA
+          git init -q && git checkout -q -b publish
+          git -c user.name=ci-bot -c user.email=ci-bot@users.noreply.github.com add -A
+          git -c user.name=ci-bot -c user.email=ci-bot@users.noreply.github.com commit -qm "CI screenshots (${{ matrix.device }}) for $GITHUB_SHA"
+          git push -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "publish:refs/heads/ci-screenshots/${GITHUB_REF_NAME}-${{ matrix.slug }}"

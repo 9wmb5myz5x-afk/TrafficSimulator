@@ -1,0 +1,20 @@
+# Xcode / Swift build artifacts
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# Misc
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM

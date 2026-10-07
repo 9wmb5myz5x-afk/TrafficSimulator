@@ -24,6 +24,7 @@ struct GameView: View {
     }()
     @State private var showStats = false
     @State private var showSave = false
+    @State private var showTraffic = false
     @State private var toast: EditFeedback?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -34,42 +35,58 @@ struct GameView: View {
                 .accessibilityIdentifier("city.map")
                 .accessibilityLabel("City map")
                 .accessibilityValue("\(game.hud.vehicles) vehicles on the road")
-            VStack(spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    HUDView(hud: game.hud, scenario: game.scenarioName)
-                    Spacer(minLength: 0)
-                    RunControls(game: game)
+            GeometryReader { geo in
+                // Portrait phones put the run controls in the side column; the
+                // side column splits in two when the screen is short.
+                let narrow = geo.size.width < 560
+                VStack(spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
+                        HUDView(hud: game.hud, scenario: game.scenarioName)
+                        Spacer(minLength: 0)
+                        if !narrow { RunControls(game: game) }
+                    }
+                    if settings.showDebugOverlay { DebugOverlay(hud: game.hud) }
+                    if game.tool != .inspect {
+                        Text(game.tool.hint)
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(Theme.color(.uiMuted))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .floatingSurface(radius: 12)
+                            .accessibilityIdentifier("tool.hint")
+                    }
+                    // The flexible middle band: the inspector (left) and the map
+                    // buttons (right) get whatever height the top bar and palette
+                    // leave, so nothing is ever pushed off-screen.
+                    HStack(alignment: .bottom, spacing: 10) {
+                        inspectorCard
+                        Spacer(minLength: 0)
+                        ViewThatFits(in: .vertical) {
+                            mapActions(columns: 1, runControls: narrow)
+                            mapActions(columns: 2, runControls: narrow)
+                            mapActions(columns: 3, runControls: narrow)
+                        }
+                    }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .layoutPriority(-1)
+                    if let toast {
+                        FeedbackToast(feedback: toast)
+                            .transition(.opacity)
+                    }
+                    BuildPalette(game: game)
                 }
-                if settings.showDebugOverlay { DebugOverlay(hud: game.hud) }
-                if game.tool != .inspect {
-                    Text(game.tool.hint)
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(Theme.color(.uiMuted))
-                        .padding(.horizontal, 10).padding(.vertical, 4)
-                        .floatingSurface(radius: 12)
-                        .accessibilityIdentifier("tool.hint")
-                }
-                // The flexible part of the column: the inspector gets whatever
-                // height the HUD and palette leave (its rows scroll if needed),
-                // so nothing is pushed off-screen on a landscape phone.
-                HStack(alignment: .bottom) {
-                    inspectorCard
-                    Spacer(minLength: 0)
-                }
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .layoutPriority(-1)
-                if let toast {
-                    FeedbackToast(feedback: toast)
-                        .transition(.opacity)
-                }
-                BuildPalette(game: game)
+                .padding(.horizontal, narrow ? 10 : Metrics.gutter)
+                .padding(.vertical, 6)
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .overlay(alignment: .trailing) { mapActions }
-            .padding(.horizontal, Metrics.gutter)
-            .padding(.vertical, 8)
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85), value: game.inspector?.title)
         }
         .sheet(isPresented: $showStats) { StatsSheet(game: game) }
+        .sheet(isPresented: $showTraffic) {
+            TrafficSheet(game: game)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showSave) { SaveSheet(game: game) }
         .onAppear {
             scene.controller = game
@@ -112,8 +129,10 @@ struct GameView: View {
         }
     }
 
-    private var mapActions: some View {
-        MapActions(game: game, showStats: $showStats, showSave: $showSave, onMenu: onMenu)
+    private func mapActions(columns: Int, runControls: Bool) -> some View {
+        MapActions(game: game, columns: columns, includeRunControls: runControls,
+                   showStats: $showStats, showSave: $showSave, showTraffic: $showTraffic,
+                   onRecentre: { scene.showWholeCity() }, onMenu: onMenu)
     }
 }
 
@@ -178,6 +197,7 @@ struct HUDView: View {
         ViewThatFits(in: .horizontal) {
             wide
             compact
+            mini
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -237,6 +257,18 @@ struct HUDView: View {
                     vehicles
                     patrols
                 }
+                FlowIndicator(level: hud.flowLevel)
+            }
+        }
+        .fixedSize()
+    }
+
+    /// The narrowest phones: clock, cars and flow.
+    private var mini: some View {
+        HStack(spacing: 8) {
+            clock
+            VStack(alignment: .leading, spacing: 2) {
+                vehicles
                 FlowIndicator(level: hud.flowLevel)
             }
         }
@@ -319,12 +351,57 @@ struct RunControls: View {
 
 struct MapActions: View {
     @ObservedObject var game: GameController
+    var columns = 1
+    /// Portrait phones: pause and speed live here instead of the top bar.
+    var includeRunControls = false
     @Binding var showStats: Bool
     @Binding var showSave: Bool
+    @Binding var showTraffic: Bool
+    var onRecentre: () -> Void
     var onMenu: () -> Void
 
+    private static let speeds: [Double] = [1, 3, 10, 30]
+
     var body: some View {
-        VStack(spacing: 10) {
+        let items = buttons
+        let perColumn = Int((Double(items.count) / Double(columns)).rounded(.up))
+        HStack(alignment: .bottom, spacing: 8) {
+            ForEach(0..<columns, id: \.self) { c in
+                VStack(spacing: 8) {
+                    ForEach(Array(items.enumerated()).filter { $0.offset / perColumn == c }, id: \.offset) { _, b in b }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var buttons: [AnyView] {
+        var out: [AnyView] = []
+        if includeRunControls {
+            out.append(AnyView(
+                Button { game.isPaused.toggle() } label: {
+                    RoundIcon(symbol: game.isPaused ? "play.fill" : "pause.fill", active: game.isPaused)
+                }
+                .accessibilityIdentifier("run.pause")
+                .accessibilityLabel(game.isPaused ? "Play" : "Pause")))
+            out.append(AnyView(
+                Button {
+                    let k = Self.speeds.firstIndex(of: game.speed) ?? 0
+                    game.speed = Self.speeds[(k + 1) % Self.speeds.count]
+                    game.isPaused = false
+                } label: {
+                    Text("\(Int(game.speed))×")
+                        .font(.hud(16))
+                        .foregroundStyle(Theme.color(.uiInk))
+                        .frame(width: Metrics.mapButton, height: Metrics.mapButton)
+                        .background(Circle().fill(Theme.color(.uiSurface)))
+                        .shadow(color: .black.opacity(0.14), radius: Metrics.shadowRadius, x: 0, y: Metrics.shadowY)
+                }
+                .accessibilityIdentifier("run.speed")
+                .accessibilityLabel("Speed")
+                .accessibilityValue("\(Int(game.speed)) times")))
+        }
+        out.append(AnyView(
             // Cycles map → congestion → police coverage.
             Button {
                 let all = MapOverlay.allCases
@@ -336,18 +413,99 @@ struct MapActions: View {
             .accessibilityIdentifier("map.overlay")
             .accessibilityLabel("Map overlay")
             .accessibilityValue(game.overlay.title)
-            .accessibilityHint("Switches between the plain map, congestion and police coverage")
+            .accessibilityHint("Switches between the plain map, congestion and police coverage")))
+        out.append(AnyView(
+            Button { showTraffic = true } label: {
+                RoundIcon(symbol: "car.2.fill", active: game.hud.trafficLevel > 1.01)
+            }
+            .accessibilityIdentifier("map.traffic")
+            .accessibilityLabel("Traffic level")
+            .accessibilityValue(TrafficSheet.describe(game.hud.trafficLevel))))
+        out.append(AnyView(
+            Button(action: onRecentre) { RoundIcon(symbol: "scope") }
+                .accessibilityIdentifier("map.recentre")
+                .accessibilityLabel("Show the whole city")))
+        out.append(AnyView(
             Button { showStats = true } label: { RoundIcon(symbol: "chart.xyaxis.line") }
                 .accessibilityIdentifier("map.stats")
-                .accessibilityLabel("Statistics")
+                .accessibilityLabel("Statistics")))
+        out.append(AnyView(
             Button { showSave = true } label: { RoundIcon(symbol: "square.and.arrow.down") }
                 .accessibilityIdentifier("map.save")
-                .accessibilityLabel("Save city")
+                .accessibilityLabel("Save city")))
+        out.append(AnyView(
             Button(action: onMenu) { RoundIcon(symbol: "line.3.horizontal") }
                 .accessibilityIdentifier("map.menu")
-                .accessibilityLabel("Menu")
+                .accessibilityLabel("Menu")))
+        return out
+    }
+}
+
+/// The traffic dial: how many people drive, and how much through traffic.
+struct TrafficSheet: View {
+    @ObservedObject var game: GameController
+    @Environment(\.dismiss) private var dismiss
+    @State private var level = 1.0
+
+    static func describe(_ v: Double) -> String {
+        switch v {
+        case ..<0.6: return "Quiet"
+        case ..<1.3: return "Normal"
+        case ..<2.2: return "Busy"
+        case ..<3.4: return "Heavy"
+        default: return "Gridlock"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Traffic").font(.hud(22)).foregroundStyle(Theme.color(.uiInk))
+                Spacer()
+                Text("\(Self.describe(level)) · \(Int((level * 100).rounded()))%")
+                    .font(.hud(15)).foregroundStyle(Theme.color(.uiAccent))
+                    .accessibilityIdentifier("traffic.value")
+            }
+            Slider(value: $level, in: Simulation.trafficLevelRange, step: 0.25) {
+                Text("Traffic level")
+            } minimumValueLabel: {
+                Image(systemName: "car.fill").foregroundStyle(Theme.color(.uiMuted))
+            } maximumValueLabel: {
+                Image(systemName: "car.2.fill").foregroundStyle(Theme.color(.signalRed))
+            } onEditingChanged: { editing in
+                if !editing { game.setTrafficLevel(level) }
+            }
+            .accessibilityIdentifier("traffic.slider")
+            HStack(spacing: 8) {
+                preset("Quiet", 0.5)
+                preset("Normal", 1)
+                preset("Busy", 2)
+                preset("Heavy", 3)
+                preset("Gridlock", 5)
+            }
+            Text("More residents drive, and more through traffic arrives from beyond the map. Changes take effect straight away; rush hours are still the busiest times.")
+                .font(.system(.footnote, design: .rounded))
+                .foregroundStyle(Theme.color(.uiMuted))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .onAppear { level = game.hud.trafficLevel }
+    }
+
+    private func preset(_ title: String, _ v: Double) -> some View {
+        Button {
+            level = v
+            game.setTrafficLevel(v)
+        } label: {
+            Text(title)
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .foregroundStyle(abs(level - v) < 0.01 ? Color.white : Theme.color(.uiInk))
+                .background(Capsule().fill(abs(level - v) < 0.01 ? Theme.color(.uiAccent) : Theme.color(.land)))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("traffic.preset.\(title.lowercased())")
     }
 }
 
@@ -358,7 +516,7 @@ struct RoundIcon: View {
         Image(systemName: symbol)
             .font(.system(size: 18, weight: .bold))
             .foregroundStyle(active ? Color.white : Theme.color(.uiInk))
-            .frame(width: Metrics.buttonSize, height: Metrics.buttonSize)
+            .frame(width: Metrics.mapButton, height: Metrics.mapButton)
             .background(Circle().fill(active ? Theme.color(.uiAccent) : Theme.color(.uiSurface)))
             .shadow(color: .black.opacity(0.14), radius: Metrics.shadowRadius, x: 0, y: Metrics.shadowY)
     }

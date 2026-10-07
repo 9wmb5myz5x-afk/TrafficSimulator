@@ -262,6 +262,12 @@ final class GameController: ObservableObject {
         }
     }
 
+    /// Turn the traffic dial (takes effect at once; see `Simulation.setTrafficLevel`).
+    func setTrafficLevel(_ level: Double) {
+        hud.trafficLevel = level
+        simQueue.async { [weak self] in self?.sim.setTrafficLevel(level) }
+    }
+
     func undo() { edit { ed, _ in ed.undo(); return EditFeedback(id: 0, message: "Undone", ok: true) } }
     func redo() { edit { ed, _ in ed.redo(); return EditFeedback(id: 0, message: "Redone", ok: true) } }
 
@@ -549,6 +555,7 @@ final class GameController: ObservableObject {
         h.responseMinutes = sim.police.meanResponseTime.map { $0 / 60 }
         h.stepMs = stepMsEMA
         h.gridlocks = sim.gridlock.activeCycles.count
+        h.trafficLevel = sim.trafficLevel
         h.patrols = sim.vehicles.reduce(0) { $0 + ($1.cls == .police && $1.mode != .finished && $1.mode != .waitingToEnter ? 1 : 0) }
         return h
     }

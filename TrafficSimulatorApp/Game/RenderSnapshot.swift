@@ -57,6 +57,8 @@ struct HUDMetrics: Equatable {
     var gridlocks = 0
     /// Police cars out on the road.
     var patrols = 0
+    /// The traffic dial (1 = normal).
+    var trafficLevel = 1.0
 }
 
 /// A building as the renderer draws it.

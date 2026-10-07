@@ -109,6 +109,8 @@ enum Metrics {
     static let radius: CGFloat = 16
     static let radiusLarge: CGFloat = 24
     static let buttonSize: CGFloat = 52
+    /// Round map buttons (side column).
+    static let mapButton: CGFloat = 46
     static let shadowRadius: CGFloat = 10
     static let shadowY: CGFloat = 4
 }

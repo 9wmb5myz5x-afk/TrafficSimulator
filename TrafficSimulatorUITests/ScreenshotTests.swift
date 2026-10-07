@@ -17,13 +17,34 @@ final class ScreenshotTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
-    private func open(_ map: String, _ extra: [String] = []) -> XCUIApplication {
+    private func open(_ map: String, _ extra: [String] = [], landscape: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-openCity", map] + extra
         app.launch()
         _ = app.descendants(matching: .any)["hud.vehicles"].waitForExistence(timeout: 15)
-        Screenshot.landscape(app)
+        if landscape { Screenshot.landscape(app) }
         return app
+    }
+
+    /// Portrait: every control on screen, and the traffic dial.
+    func testPortraitLayoutAndTrafficDial() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = open("downtown", ["-startHour", "8"], landscape: false)
+        settle(6)
+        Screenshot.capture(app, named: "portrait")
+        for id in ["map.overlay", "map.traffic", "map.recentre", "map.stats", "map.save", "map.menu", "palette.roads"] {
+            let b = app.buttons[id]
+            XCTAssertTrue(b.exists && b.isHittable, "\(id) is not on screen in portrait")
+        }
+        app.buttons["map.traffic"].tap()
+        let heavy = app.buttons["traffic.preset.heavy"]
+        XCTAssertTrue(heavy.waitForExistence(timeout: 5))
+        heavy.tap()
+        settle(1)
+        Screenshot.capture(app, named: "traffic-dial")
+        app.swipeDown()
+        settle(20)
+        Screenshot.capture(app, named: "heavy-traffic")
     }
 
     private func settle(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }

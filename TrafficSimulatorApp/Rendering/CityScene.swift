@@ -64,10 +64,16 @@ final class CityScene: SKScene {
     private var didFit = false
     private var phase: Double = 0
 
-    // Camera gesture state.
+    // Camera state (see CityScene+Input.swift).
     var camScale: CGFloat = 1
-    var panStart = CGPoint.zero
     var pinchStart: CGFloat = 1
+    /// The world point held under the fingers during a pinch.
+    var pinchAnchor: CGPoint?
+    /// Glide after a flick, in view points per second.
+    var panVelocity = CGPoint.zero
+    /// An animated camera move (double tap, recentre).
+    var camAnimation: CameraAnimation?
+    var lastFrameTime: TimeInterval = 0
     /// The stroke being drawn (nil while panning the camera).
     var stroke: [Vector2]?
     var strokeNode: SKShapeNode?
@@ -98,6 +104,9 @@ final class CityScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
+        let dt = lastFrameTime == 0 ? 0 : min(currentTime - lastFrameTime, 0.1)
+        lastFrameTime = currentTime
+        stepCamera(dt: dt)
         guard let controller else { return }
         if let g = controller.buffer.latestGeometry(), g.networkVersion != networkVersion || g.cityVersion != cityVersion {
             let networkChanged = g.networkVersion != networkVersion
@@ -105,8 +114,10 @@ final class CityScene: SKScene {
             cityVersion = g.cityVersion
             if networkChanged { rebuildTerrainAndRoads(g) }
             rebuildBuildings(g, animate: didFit && !reduceMotion)
-            worldBounds = g.bounds
-            if !didFit { fitCamera(); didFit = true }
+            // The navigable region: the whole map, not just where the roads are.
+            worldBounds = (Vector2(min(g.bounds.min.x, g.terrain.minCorner.x), min(g.bounds.min.y, g.terrain.minCorner.y)),
+                           Vector2(max(g.bounds.max.x, g.terrain.maxCorner.x), max(g.bounds.max.y, g.terrain.maxCorner.y)))
+            if !didFit { fitCamera(roads: g.bounds); didFit = true }
         }
         let now = CACurrentMediaTime()
         guard let frame = controller.buffer.interpolated(at: now) else { return }
@@ -539,13 +550,13 @@ final class CityScene: SKScene {
 
     // MARK: - Camera
 
-    private func fitCamera() {
-        let span = CGSize(width: worldBounds.max.x - worldBounds.min.x, height: worldBounds.max.y - worldBounds.min.y)
-        cam.position = CGPoint(x: (worldBounds.min.x + worldBounds.max.x) / 2, y: (worldBounds.min.y + worldBounds.max.y) / 2)
+    private func fitCamera(roads: (min: Vector2, max: Vector2)) {
+        let span = CGSize(width: roads.max.x - roads.min.x, height: roads.max.y - roads.min.y)
+        cam.position = CGPoint(x: (roads.min.x + roads.max.x) / 2, y: (roads.min.y + roads.max.y) / 2)
         let viewSize = view?.bounds.size ?? CGSize(width: 844, height: 390)
-        // Fit the map, but start close enough to see the cars.
+        // Fit the town, but start close enough to see the cars.
         camScale = min(span.width / max(viewSize.width, 1), span.height / max(viewSize.height, 1)) * 0.75
-        camScale = min(max(camScale, 0.15), 3)
+        camScale = min(max(camScale, 0.15), maxCamScale)
         // UI tests / screenshots: -zoom <scale> (smaller = closer).
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-zoom"), i + 1 < args.count, let z = Double(args[i + 1]) { camScale = CGFloat(z) }

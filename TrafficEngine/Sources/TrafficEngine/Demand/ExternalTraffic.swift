@@ -47,7 +47,10 @@ extension Simulation {
         let residents = Double(currentPopulation())
         let entries = Double(max(regionalEntries().entries.count, 1))
         let base = residents / 1000 * config.externalTripsPerThousand / entries
-        return base * DemandProfile.externalFactor(hour: clockHour, weekend: isWeekend) * config.demandMultiplier
+        let profile = DemandProfile.externalFactor(hour: clockHour, weekend: isWeekend)
+        // Above the normal level, a population-independent floor (see TrafficLevel.swift).
+        let floor = max(0, config.demandMultiplier - 1) * Self.throughTrafficPerLevel
+        return max(base * config.demandMultiplier, floor) * profile
     }
 
     func updateExternalTraffic(dt: Double) {

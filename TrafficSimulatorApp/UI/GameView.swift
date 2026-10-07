@@ -49,11 +49,15 @@ struct GameView: View {
                         .floatingSurface(radius: 12)
                         .accessibilityIdentifier("tool.hint")
                 }
-                Spacer()
+                // The flexible part of the column: the inspector gets whatever
+                // height the HUD and palette leave (its rows scroll if needed),
+                // so nothing is pushed off-screen on a landscape phone.
                 HStack(alignment: .bottom) {
                     inspectorCard
                     Spacer(minLength: 0)
                 }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .layoutPriority(-1)
                 if let toast {
                     FeedbackToast(feedback: toast)
                         .transition(.opacity)
@@ -366,6 +370,21 @@ struct InspectorCard: View {
     let info: InspectorInfo
     var onClose: () -> Void
 
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(info.rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(row.label).font(.hudLabel(12)).foregroundStyle(Theme.color(.uiMuted))
+                    Spacer(minLength: 8)
+                    Text(row.value).font(.system(.callout, design: .rounded).weight(.semibold))
+                        .foregroundStyle(Theme.color(.uiInk))
+                        .multilineTextAlignment(.trailing)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -381,15 +400,10 @@ struct InspectorCard: View {
                 .accessibilityLabel("Close")
                 .accessibilityIdentifier("inspector.close")
             }
-            ForEach(Array(info.rows.enumerated()), id: \.offset) { _, row in
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(row.label).font(.hudLabel(12)).foregroundStyle(Theme.color(.uiMuted))
-                    Spacer(minLength: 8)
-                    Text(row.value).font(.system(.callout, design: .rounded).weight(.semibold))
-                        .foregroundStyle(Theme.color(.uiInk))
-                        .multilineTextAlignment(.trailing)
-                }
-                .accessibilityElement(children: .combine)
+            // All rows when they fit, otherwise a scrolling list.
+            ViewThatFits(in: .vertical) {
+                rows
+                ScrollView { rows }.scrollIndicators(.automatic)
             }
         }
         .padding(14)

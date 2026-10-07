@@ -22,10 +22,10 @@
 		823C4A39AA0ABE142E5A4C7A /* StatsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9AA635C0EFCA5BFF4200218 /* StatsSheet.swift */; };
 		84BAAAC96EF9C6CE33410A26 /* BuildPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = E579875971B0B6186ECD6397 /* BuildPalette.swift */; };
 		87CA76873655852E37DF7FEF /* CityScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B517EB61443D32C747178D /* CityScene.swift */; };
-		C1E5A0F00000000000000002 /* CityScene+Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1E5A0F00000000000000001 /* CityScene+Input.swift */; };
 		88BB8272CC97DCFF41E1CC7B /* TrafficCityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9AC1710FE87164684518C3 /* TrafficCityApp.swift */; };
 		9C97AC390E4DCBF0F882D80B /* GameController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF3483B3632D40B3ED0EEAF /* GameController.swift */; };
 		AEBAC97440C2AE6A3FFE4AE6 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163EB720DA10B735151723C4 /* GameView.swift */; };
+		D6DA843D467584CCD97F07D1 /* CityScene+Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B8E7E47765976A6D3A526F /* CityScene+Input.swift */; };
 		D78B39A83BF5BA6CE49A793D /* GameplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D8DE154818EEAC14C09C6 /* GameplayTests.swift */; };
 		E8F5A49E7C9054C9B79FEB6B /* RenderSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9229CFD75F53E252EA907DD /* RenderSnapshot.swift */; };
 /* End PBXBuildFile section */
@@ -52,8 +52,8 @@
 		9C9AC1710FE87164684518C3 /* TrafficCityApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficCityApp.swift; sourceTree = "<group>"; };
 		A93F5D4C53601FFE2635B9C1 /* Textures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Textures.swift; sourceTree = "<group>"; };
 		B070F2217B1DE271710436FA /* LaunchSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSmokeTests.swift; sourceTree = "<group>"; };
+		B7B8E7E47765976A6D3A526F /* CityScene+Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CityScene+Input.swift"; sourceTree = "<group>"; };
 		B9B517EB61443D32C747178D /* CityScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityScene.swift; sourceTree = "<group>"; };
-		C1E5A0F00000000000000001 /* CityScene+Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CityScene+Input.swift"; sourceTree = "<group>"; };
 		C1707A6D954455F8CC529EE8 /* SaveStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveStore.swift; sourceTree = "<group>"; };
 		C464E6478DBD5E949CFAD429 /* BuildTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildTool.swift; sourceTree = "<group>"; };
 		C5E3A1EE99CB5734C954ADDF /* TitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleView.swift; sourceTree = "<group>"; };
@@ -173,7 +173,7 @@
 			isa = PBXGroup;
 			children = (
 				B9B517EB61443D32C747178D /* CityScene.swift */,
-				C1E5A0F00000000000000001 /* CityScene+Input.swift */,
+				B7B8E7E47765976A6D3A526F /* CityScene+Input.swift */,
 				A93F5D4C53601FFE2635B9C1 /* Textures.swift */,
 			);
 			path = Rendering;
@@ -287,8 +287,8 @@
 				84BAAAC96EF9C6CE33410A26 /* BuildPalette.swift in Sources */,
 				7EB2D32445C9259A52C71FFB /* BuildTool.swift in Sources */,
 				00C4616B3C26ECD87C2EC85A /* BuildingStyle.swift in Sources */,
+				D6DA843D467584CCD97F07D1 /* CityScene+Input.swift in Sources */,
 				87CA76873655852E37DF7FEF /* CityScene.swift in Sources */,
-				C1E5A0F00000000000000002 /* CityScene+Input.swift in Sources */,
 				08FBFAC32FE48EA8B84128B7 /* DesignPreview.swift in Sources */,
 				9C97AC390E4DCBF0F882D80B /* GameController.swift in Sources */,
 				AEBAC97440C2AE6A3FFE4AE6 /* GameView.swift in Sources */,

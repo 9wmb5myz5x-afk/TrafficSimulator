@@ -30,15 +30,17 @@ final class ScreenshotTests: XCTestCase {
 
     func testStarterMapsAtRushHour() {
         for map in ["signalGrid", "suburb", "downtown", "highwayTown", "roundaboutVillage", "stressCity"] {
-            let app = open(map, ["-startHour", "7.6"])
-            settle(10)
+            // Close enough to see the cars, with the morning peak building.
+            let app = open(map, ["-startHour", "7.6", "-zoom", "0.45"])
+            settle(12)
             Screenshot.capture(app, named: "rush-\(map)")
             app.terminate()
         }
     }
 
     func testCloseUpNightAndLeftHand() {
-        var app = open("signalGrid", ["-startHour", "8", "-zoom", "0.12"])
+        // A central signalised junction (grid nodes sit every 240 × 210 m).
+        var app = open("signalGrid", ["-startHour", "8", "-camera", "480,210,0.12"])
         settle(10)
         Screenshot.capture(app, named: "closeup-lanes")
         app.terminate()
@@ -70,6 +72,12 @@ final class ScreenshotTests: XCTestCase {
         app.buttons["map.overlay"].tap()          // → police coverage
         settle(3)
         Screenshot.capture(app, named: "overlay-coverage")
+        // Some simulated time first, so the charts have data to show.
+        if app.buttons["run.speed.30"].isHittable {
+            app.buttons["run.speed.30"].tap()
+            settle(12)
+            if app.buttons["run.speed.1"].isHittable { app.buttons["run.speed.1"].tap() }
+        }
         app.buttons["map.stats"].tap()
         XCTAssertTrue(app.navigationBars["Statistics"].waitForExistence(timeout: 5))
         settle(1)

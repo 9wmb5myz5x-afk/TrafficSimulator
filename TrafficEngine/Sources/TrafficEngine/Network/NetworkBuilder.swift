@@ -395,7 +395,12 @@ struct NetworkBuilder {
         }
         if n == 2 {
             let alpha = abs(DMath.angleDifference(ends[0].angle, ends[1].angle))
-            if alpha > DMath.pi * 0.9 { return [] }   // gentle continuation: roads meet directly
+            if alpha > DMath.pi * 0.9 {
+                // Gentle continuation: the roads meet directly, unless they are
+                // set back for a width taper — then the patch joins their ends.
+                if ends.allSatisfy({ $0.setback < 0.05 }) { return [] }
+                return hullSurface(center: center, ends: ends)
+            }
         }
         var pts: [Vector2] = []
         for i in 0..<n {

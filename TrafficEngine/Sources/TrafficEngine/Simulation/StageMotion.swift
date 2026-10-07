@@ -183,7 +183,11 @@ extension Simulation {
                 let inLane = v.destinationLane.map { $0 == v.lane || v.laneChange?.toLane == $0 } ?? true
                 if d > -2 && inLane && !drivewayBlockedByParkedCar(i) {
                     // Someone else is turning in/out there: wait short of the driveway.
-                    if d < 40 && v.destination.kind == .building && drivewayBusy(i) { consider(gap: max(d - 6, 0.05), leaderSpeed: 0) }
+                    if d < 40 && v.destination.kind == .building, let busy = drivewayBusyAt(i) {
+                        // Clear of the busy driveway by more than a truck's length,
+                        // so whoever is leaving it never sees us as in the way.
+                        consider(gap: max(min(d - 6, busy - v.s - 11), 0.05), leaderSpeed: 0)
+                    }
                     else { consider(gap: max(d + 3, 0.05), leaderSpeed: 3) }
                 }
                 // No route beyond this street yet (the stop may be taken and the

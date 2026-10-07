@@ -118,10 +118,21 @@ extension Simulation {
                     }
                     return q
                 }
-                // Fields stop at the roads: split nothing, just leave the
-                // patch beside a road as verge.
-                if nearRoad(c, max(colW, rowH) / 2 + 6) { continue }
-                out.fields.append(Outskirts.Field(kind: kind, polygon: quad))
+                // Fields stop at the roads: a patch a road runs through is
+                // split into quarters (twice), keeping those clear of it.
+                func place(_ q: [Vector2], depth: Int) {
+                    let c = q.reduce(Vector2.zero, +) * 0.25
+                    let half = max(q[0].distance(to: q[2]), q[1].distance(to: q[3])) / 2
+                    if !nearRoad(c, half + 4) { out.fields.append(Outskirts.Field(kind: kind, polygon: q)); return }
+                    guard depth < 2 else { return }
+                    let m01 = (q[0] + q[1]) * 0.5, m12 = (q[1] + q[2]) * 0.5, m23 = (q[2] + q[3]) * 0.5, m30 = (q[3] + q[0]) * 0.5
+                    for sub in [[q[0], m01, c, m30], [m01, q[1], m12, c], [c, m12, q[2], m23], [m30, c, m23, q[3]]] {
+                        // Hedgerow gaps between the parts too.
+                        let sc = sub.reduce(Vector2.zero, +) * 0.25
+                        place(sub.map { $0 + (sc - $0).normalized * 2 }, depth: depth + 1)
+                    }
+                }
+                place(quad, depth: 0)
             }
             y += rowH
         }

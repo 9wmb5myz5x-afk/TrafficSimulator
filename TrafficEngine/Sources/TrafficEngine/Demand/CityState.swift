@@ -297,8 +297,19 @@ extension Simulation {
             // Neighbouring driveways (a second row of houses shares the frontage):
             // one car at a time in the same few metres of kerb.
             let busyNearby = kerbside.contains { j in
-                j < vehicles.count && vehicles[j].track == .edge(access.edge) && abs(vehicles[j].s - access.s) < 7
+                guard j < vehicles.count else { return false }
+                let w = vehicles[j]
+                if w.track == .edge(access.edge) && abs(w.s - access.s) < 7 { return true }
+                // A car turning into a driveway sharing this frontage.
+                return w.mode == .onDriveway && w.driveway?.inbound == true && w.destination.edge == access.edge
+                    && abs(w.destination.s - access.s) < 12
             } || spawnedHere.contains { $0.0 == access.edge && abs($0.1 - access.s) < 7 }
+                // A car in the lane about to turn into a driveway here goes first.
+                || laneOcc[laneKey(access.edge, access.lane)].contains { o in
+                    let w = vehicles[Int(o.index)]
+                    return w.mode == .driving && w.isOnFinalEdge && w.destination.kind == .building
+                        && abs(w.destination.s - access.s) < 12 && o.s > access.s - 30 && o.s < access.s + 4
+                }
             if busyNearby { continue }
             city.buildingSlots[k]?.departureQueue.removeFirst()
             guard pid.raw < city.people.count, let trip = city.people[pid.raw].plan.first,
@@ -495,18 +506,29 @@ extension Simulation {
 
     /// Another car is turning out of or into a driveway close to this
     /// vehicle's destination driveway.
-    func drivewayBusy(_ i: Int) -> Bool {
+    func drivewayBusy(_ i: Int) -> Bool { drivewayBusyAt(i) != nil }
+
+    /// Where (arc length on the edge) the nearest car in the way of this
+    /// vehicle's turn-in is: pulling in or out, turning in, leaving the very
+    /// driveway we want, coming down the driveway next door, or waiting at a
+    /// mouth that shares our frontage. The vehicle waits short of it, so a
+    /// car leaving can always go first (it waits for traffic, not for us).
+    func drivewayBusyAt(_ i: Int) -> Double? {
         let v = vehicles[i]
-        return kerbside.contains { j in
-            j != i && j < vehicles.count && vehicles[j].track == v.track && abs(vehicles[j].s - v.destination.s) < 14
-                && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn
-                    // On a driveway: one turning in, one leaving the very
-                    // driveway we want, or one still coming down the driveway
-                    // next door (once it waits at its mouth, it waits for us).
-                    || (vehicles[j].mode == .onDriveway
-                        && (vehicles[j].driveway?.inbound == true || vehicles[j].origin == v.destination.building
-                            || vehicles[j].driveway.map { $0.path.length - $0.s > 0.05 } == true)))
+        var nearest: Double?
+        for j in kerbside where j != i && j < vehicles.count {
+            let w = vehicles[j]
+            guard w.track == v.track, abs(w.s - v.destination.s) < 14 else { continue }
+            let ours = w.origin == v.destination.building || (w.destination.building == v.destination.building && w.destination.kind == .building)
+            // Well behind us, it is no obstacle (and it waits for us).
+            if !ours && w.s < v.s - v.length { continue }
+            var busy = w.mode == .pullingOut || w.mode == .pullingIn
+            if w.mode == .onDriveway, let run = w.driveway {
+                busy = run.inbound || ours || run.path.length - run.s > 0.05 || abs(w.s - v.destination.s) < 10
+            }
+            if busy { nearest = min(nearest ?? .infinity, w.s) }
         }
+        return nearest
     }
 
     /// A car parked across this vehicle's destination driveway (it will drive

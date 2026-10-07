@@ -74,8 +74,9 @@ final class GameplayTests: XCTestCase {
         tap(app, "palette.roads")
         XCTAssertTrue(app.buttons["tool.road"].waitForExistence(timeout: 3))
         point(app, -520, 0).press(forDuration: 0.15, thenDragTo: point(app, -265, 0))
-        XCTAssertTrue(toast(app).waitForExistence(timeout: 5), "no feedback after drawing")
+        let drew = toast(app).waitForExistence(timeout: 5)
         Screenshot.capture(app, named: "build-road")
+        XCTAssertTrue(drew, "no feedback after drawing")
 
         // Homes on both sides, a shop, an office and a police station.
         tap(app, "palette.homes")
@@ -110,7 +111,9 @@ final class GameplayTests: XCTestCase {
         if !wait(4, { !app.buttons["save.confirm"].exists }), app.buttons["save.confirm"].isHittable {
             app.buttons["save.confirm"].tap()
         }
-        XCTAssertTrue(wait(10) { !app.buttons["save.confirm"].exists }, "save sheet did not close")
+        let closed = wait(10) { !app.buttons["save.confirm"].exists }
+        if !closed { Screenshot.capture(app, named: "save-sheet-stuck") }
+        XCTAssertTrue(closed, "save sheet did not close")
 
         // Terminate, relaunch, load.
         app.terminate()

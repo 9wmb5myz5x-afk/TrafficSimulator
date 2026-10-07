@@ -469,22 +469,45 @@ extension Simulation {
                 }
             case .driving:
                 let v = vehicles[i]
+                // Time spent stopped short of the destination driveway, for a busy
+                // driveway or for no visible reason (not just queuing behind
+                // someone): see `drivewayPatience`.
+                let waitingToTurnIn: Bool = {
+                    guard v.isOnFinalEdge, v.destination.kind == .building, v.speed < 0.5,
+                          v.destination.s - v.s < 40, v.destination.s - v.s > -3, case .edge(let e) = v.track else { return false }
+                    if drivewayBusyAt(i, patient: true) != nil { return true }
+                    guard let o = leader(in: laneOcc[laneKey(e, v.lane)], after: v.s, excluding: i) else { return true }
+                    return o.s - vehicles[Int(o.index)].length - v.s > 8
+                }()
+                if waitingToTurnIn {
+                    vehicles[i].modeTimer += dt
+                } else if v.speed > 2 || v.modeTimer > 3 * Self.drivewayPatience {
+                    vehicles[i].modeTimer = 0
+                }
                 guard v.isOnFinalEdge, v.destination.kind == .building, case .edge(let e) = v.track, e == v.destination.edge,
                       v.laneChange == nil, v.lane == (v.destinationLane ?? v.lane),
                       v.s >= v.destination.s - 10, v.s <= v.destination.s + 6, v.speed < 7 else { continue }
                 // Wait for a car pulling out of / into a driveway right here.
                 if drivewayBusy(i) || drivewayBlockedByParkedCar(i) { continue }
-                // Turn off along the driveway (the building's own, when it has one free).
+                guard vehicles[i].modeTimer <= Self.drivewayPatience,
+                      let b = v.destination.building.flatMap({ city.building($0) }), b.access != nil,
+                      drivewayHolder(b.id) == nil else { continue }
                 // Turn off along the driveway a few metres short of it, curving
-                // up to the building; too late for that, the old way (a short
-                // sidestep onto the verge).
+                // up to the building.
                 if v.s <= v.destination.s - 1.5 {
-                    guard let b = v.destination.building.flatMap({ city.building($0) }), b.access != nil,
-                          v.speed <= 5.5, drivewayHolder(b.id) == nil, arrivalPath(i, at: b) != nil else { continue }
-                    startArriving(i, at: b)
+                    if v.speed <= 5.5, arrivalPath(i, at: b) != nil { startArriving(i, at: b) }
                     continue
                 }
-                if v.s < v.destination.s - 5 { continue }
+                // Right at it (too late to curve in): a short sidestep onto the
+                // verge, only with no driveway in use along the stretch it
+                // sweeps. Otherwise drive on and come round again.
+                guard v.s <= v.destination.s + 3 else { continue }
+                if kerbside.contains(where: { j in
+                    j != i && j < vehicles.count && vehicles[j].track == v.track
+                        && vehicles[j].s > v.s - 10 && vehicles[j].s < v.s + 20
+                        && (vehicles[j].mode == .onDriveway || vehicles[j].mode == .pullingOut
+                            || vehicles[j].mode == .pullingIn || vehicles[j].mode == .waitingToEnter)
+                }) { continue }
                 vehicles[i].mode = .pullingIn
                 kerbside.append(i)
                 vehicles[i].modeTimer = 0
@@ -508,13 +531,18 @@ extension Simulation {
     /// vehicle's destination driveway.
     func drivewayBusy(_ i: Int) -> Bool { drivewayBusyAt(i) != nil }
 
+    /// How long a driver waits for a busy driveway before driving on (and
+    /// coming round again): no stand-off with a car that is waiting for it can last.
+    static let drivewayPatience = 8.0
+
     /// Where (arc length on the edge) the nearest car in the way of this
     /// vehicle's turn-in is: pulling in or out, turning in, leaving the very
     /// driveway we want, coming down the driveway next door, or waiting at a
     /// mouth that shares our frontage. The vehicle waits short of it, so a
     /// car leaving can always go first (it waits for traffic, not for us).
-    func drivewayBusyAt(_ i: Int) -> Double? {
+    func drivewayBusyAt(_ i: Int, patient: Bool = false) -> Double? {
         let v = vehicles[i]
+        if !patient && v.mode == .driving && v.modeTimer > Self.drivewayPatience { return nil }
         var nearest: Double?
         for j in kerbside where j != i && j < vehicles.count {
             let w = vehicles[j]

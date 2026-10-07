@@ -181,7 +181,9 @@ extension Simulation {
             if v.isOnFinalEdge && v.destination.kind != .exitMap && v.mode == .driving {
                 let d = v.destination.s - v.s
                 let inLane = v.destinationLane.map { $0 == v.lane || v.laneChange?.toLane == $0 } ?? true
-                if d > -2 && inLane && !drivewayBlockedByParkedCar(i) {
+                // Slow to turn in, unless already given up on it (see `drivewayPatience`).
+                let canTurnIn = v.modeTimer <= Self.drivewayPatience
+                if d > -2 && inLane && canTurnIn && !drivewayBlockedByParkedCar(i) {
                     // Someone else is turning in/out there: wait short of the driveway.
                     if d < 40 && v.destination.kind == .building, let busy = drivewayBusyAt(i) {
                         // Clear of the busy driveway by more than a truck's length,
@@ -196,7 +198,11 @@ extension Simulation {
                     consider(gap: max(edge.length - v.s - 0.5, 0.05), leaderSpeed: 0)
                 }
             }
-            if v.mode == .pullingIn { v0 = min(v0, 4) }
+            if v.mode == .pullingIn {
+                v0 = min(v0, 4)
+                // The sidestep stays at its driveway (never along the verge to the next one).
+                consider(gap: max(v.destination.s + 5 - v.s, 0.05), leaderSpeed: 0)
+            }
             if v.mode == .pullingOut { v0 = min(v0, max(v0 * 0.6, 8)) }
             if v.yieldingToEmergency { v0 = min(v0, 1.5) }
         case .connector(let cid):

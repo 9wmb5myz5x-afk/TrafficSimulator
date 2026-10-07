@@ -45,8 +45,8 @@ final class PoliceTests: XCTestCase {
             var checked = 0, failures: [String] = []
             let checker = sim.runChecked(seconds: 900) {
                 var now = Set<VehicleID>()
-                for s in sim.sirenSources {
-                    let p = sim.vehicles[s]
+                // (Not `sirenSources`: its indices go stale once finished cars are compacted away.)
+                for (s, p) in sim.vehicles.enumerated() where p.siren && p.mode != .finished {
                     guard case .edge(let e) = p.track else { continue }
                     for (j, v) in sim.vehicles.enumerated() where j != s && v.track == p.track && v.purpose != .emergency && v.mode == .driving {
                         let gap = v.s - p.s

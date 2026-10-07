@@ -131,11 +131,20 @@ Feedback after the first play: zoom and panning felt wrong, the top and bottom c
 | 2026-10-06 | 3 | Linux | `trafficsim --fuzz --minutes 45 --seeds 1,2,3,4` (7 maps × 2 sides, an edit every 30 s, `636bfe3`) | **56/56 runs, 0 violations.** 3,962 edits applied, 1,078 rejected by validation (`docs/verification/fuzz-636bfe3.txt`) |
 | 2026-10-06 | perf | Linux | `trafficsim --scenario stressCity --minutes 30 --no-check --progress --stages` (`636bfe3`) | 3.1 ms/step @ 1,441 veh; 4.0 ms @ 1,846 veh |
 | 2026-10-07 | 4–5 | CI | app build + UI tests on iPhone, iPhone SE, iPad; Linux engine tests | **all 4 jobs pass**; screenshot set reviewed and committed to `docs/screenshots/` |
+| 2026-10-07 | 1–3 | Linux | `swift test -c release` (round 2, `0b4aff3`) | **81 tests, 0 failures**. New: driveways, countryside, road preview, traffic level |
+| 2026-10-07 | 3 | Linux | `trafficsim --soak --hours 2 --seeds 1,2,3,4,5` (7 maps × 2 sides, `0b4aff3`) | **70/70 runs, 0 violations** (`docs/verification/soak-0b4aff3.txt`). Earlier round-2 builds failed here; each failure was a driveway stand-off or a police edge case, fixed in D29 |
+| 2026-10-07 | 3 | Linux | Stress City, 80 min, seeds 1–3 (`da6b3e8`) | 0, 3 and 1 `stuck` reports, all cars in long signal queues on the saturated map; **0 overlaps** (`docs/verification/stress80-da6b3e8.txt`). Before the round-2 fixes the same runs had thousands of overlaps and over 1,000 gridlocks |
+| 2026-10-07 | 4–5 | CI | app build + UI tests on iPhone, iPhone SE, iPad (round 2) | all 4 jobs pass; screenshots reviewed (driveways, countryside, portrait layouts) |
 
 ## Where each level runs
 - L1–L3: Linux container (local), CI `engine-linux`, CI `app-macos`.
 - L4–L5: CI `app-macos` (iPhone) and `app-devices` (iPhone SE, iPad).
 
 ## Known issues / next steps
+- Edit fuzzing (round 2, seeds 1–2) still finds two rare cases, both in long random-edit sequences rather than normal play:
+  - an undo of a restyle while a car is inside a junction moves it 0.4 m;
+  - on Empty Land, a sequence of edits leaves two roads between the same junctions.
+- Stress City at 80 min shows a few `stuck` reports from saturated signal queues (not deadlocks).
+- Highway interchanges are not built automatically. A drawn highway passes over the streets it crosses; ramps exist only in the Highway Town map.
 1. Sound: a placement click only (the system "Tock", which respects the mute switch). There is no ambient traffic audio; it is optional in the brief.
 2. The bundle identifier is the placeholder `com.example.TrafficSimulator`. Set your own team and bundle id before running on a device or shipping.

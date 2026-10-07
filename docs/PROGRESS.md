@@ -91,6 +91,29 @@ Milestones M0–M8 are complete. Every Definition of Done item has evidence belo
 - [x] Final soak and fuzz evidence on the final engine binary `636bfe3` (verification log; outputs in `docs/verification/`).
 - [x] CI green on the final commit (all four jobs).
 
+### Round 2 — playtest feedback ✅
+Feedback after the first play: zoom and panning felt wrong, the top and bottom controls were cut off, there was no clear way to add traffic, the city stopped at a hard edge, road building was crude, and cars floated between buildings and the road.
+- [x] **Camera** like a maps app:
+  - pinch zooms around the fingers and pans at the same time;
+  - a flick glides on;
+  - double tap zooms in, two-finger tap zooms out;
+  - the view can go from street level out over the whole region and its countryside;
+  - recentre button.
+- [x] **Layout fits every screen.** A flexible middle band holds the inspector and the map buttons, which split into columns when the screen is short. Portrait phones move the run controls into that column, and the palette has a compact variant for small phones. A UI test asserts every control is hittable in portrait.
+- [x] **Traffic dial** (`map.traffic` sheet): Quiet 0.5×, Normal, Busy 2×, Heavy 3×, Gridlock 5×. It takes effect at once: extra residents get the rest of today's plan, and through traffic has a floor independent of population, so even a small town can jam (`Simulation.setTrafficLevel`, D28).
+- [x] **Driveways** (D29):
+  - cars come out of the garage (fading in), roll down a paved driveway, stop at the kerb angled into traffic and pull out when there is a gap;
+  - arriving cars turn off the lane along a curve, drive up to the building and disappear into it;
+  - driveways are drawn (strip and apron);
+  - cars on long driveways fade where they pass under other buildings.
+- [x] **Countryside** (D30): fields, woods and farmsteads all around the map. The regional roads carry on to the horizon, cars leaving the map drive off along them, and scenery traffic heads into town.
+- [x] **Road building** (D31):
+  - while dragging, the engine dry-runs the edit and shows the smoothed road green or red;
+  - markers show where its ends join the network;
+  - a one-line summary covers junctions, bridges, roads passed over and dead ends, or explains why it can't be built;
+  - nearly straight drags become straight;
+  - highways pass over streets, with raised junctions.
+
 ## Verification log
 
 | When | Level | Where | What | Result |

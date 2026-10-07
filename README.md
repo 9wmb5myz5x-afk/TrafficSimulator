@@ -9,10 +9,13 @@ A native iOS city builder where the traffic is the point. You draw roads, zone h
   - pre-positioning two junctions ahead;
   - cooperative merges and zipper courtesy.
 - **Junctions that run themselves.** Control follows road classes and measured volumes: uncontrolled, yield, two-way stop, all-way stop, actuated NEMA dual-ring signals with protected or permitted turns, coordination, Webster splits, and roundabouts. Gridlock is detected and resolved.
-- **A living demand engine.** Residents have jobs, schools, shops and schedules (AM/PM peaks, weekends). Trips start and end in real driveways, with regional commuters and through traffic.
+- **A living demand engine.** Residents have jobs, schools, shops and schedules (AM/PM peaks, weekends). Cars back out of garages, roll down driveways, wait at the kerb for a gap and turn into driveways at the other end. Regional commuters and through traffic drive in from the countryside around the town.
+- **A traffic dial** from quiet to gridlock, taking effect at once.
 - **Police.** Stations deploy units that patrol, respond to incidents with signal pre-emption, and pass civilians who pull over.
 - **Game layer:**
   - build palette with undo/redo;
+  - live road preview while drawing (green or red, with what the road will do);
+  - a maps-style camera (pinch around the fingers, flick to glide, double tap to zoom);
   - placement feedback and haptics;
   - inspector cards;
   - stats with Swift Charts and per-junction Level of Service;

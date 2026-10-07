@@ -65,7 +65,12 @@ struct BuildPalette: View {
                 fitting(toolRow(open))
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            fitting(categoryRow)
+            // Full size, then compact (small phones in portrait), then scrolling.
+            ViewThatFits(in: .horizontal) {
+                categoryRow(compact: false)
+                categoryRow(compact: true)
+                ScrollView(.horizontal, showsIndicators: false) { categoryRow(compact: true) }
+            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: open)
     }
@@ -78,8 +83,8 @@ struct BuildPalette: View {
         }
     }
 
-    private var categoryRow: some View {
-        HStack(spacing: 2) {
+    private func categoryRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? 0 : 2) {
             ForEach(PaletteCategory.allCases) { c in
                 Button {
                     if c.tools.count == 1 {
@@ -92,26 +97,26 @@ struct BuildPalette: View {
                         if !c.tools.contains(game.tool) { game.tool = c.tools[0] }
                     }
                 } label: {
-                    PaletteIcon(symbol: c.symbol, active: PaletteCategory.of(game.tool) == c)
+                    PaletteIcon(symbol: c.symbol, active: PaletteCategory.of(game.tool) == c, compact: compact)
                 }
                 .accessibilityIdentifier("palette.\(c.rawValue)")
                 .accessibilityLabel(c.title)
                 .accessibilityAddTraits(PaletteCategory.of(game.tool) == c ? .isSelected : [])
             }
-            Divider().frame(height: 28).padding(.horizontal, 4)
-            Button { game.undo() } label: { PaletteIcon(symbol: "arrow.uturn.backward", active: false) }
+            Divider().frame(height: 28).padding(.horizontal, compact ? 2 : 4)
+            Button { game.undo() } label: { PaletteIcon(symbol: "arrow.uturn.backward", active: false, compact: compact) }
                 .disabled(!game.canUndo)
                 .opacity(game.canUndo ? 1 : 0.35)
                 .accessibilityIdentifier("tool.undo")
                 .accessibilityLabel("Undo")
-            Button { game.redo() } label: { PaletteIcon(symbol: "arrow.uturn.forward", active: false) }
+            Button { game.redo() } label: { PaletteIcon(symbol: "arrow.uturn.forward", active: false, compact: compact) }
                 .disabled(!game.canRedo)
                 .opacity(game.canRedo ? 1 : 0.35)
                 .accessibilityIdentifier("tool.redo")
                 .accessibilityLabel("Redo")
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, compact ? 4 : 6)
         .padding(.vertical, 4)
         .floatingSurface()
     }
@@ -186,12 +191,14 @@ struct PaletteIcon: View {
     let symbol: String
     let active: Bool
     var small = false
+    /// Narrower, for small phones in portrait (still a 44-point-tall target).
+    var compact = false
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: small ? 16 : 18, weight: .bold))
+            .font(.system(size: small || compact ? 16 : 18, weight: .bold))
             .foregroundStyle(active ? Color.white : Theme.color(.uiInk))
-            .frame(width: small ? 38 : 40, height: small ? 38 : 40)
+            .frame(width: compact ? 35 : (small ? 38 : 40), height: compact ? 44 : (small ? 38 : 40))
             .background(RoundedRectangle(cornerRadius: Metrics.radiusSmall, style: .continuous)
                 .fill(active ? Theme.color(.uiAccent) : Color.clear))
             .contentShape(Rectangle())

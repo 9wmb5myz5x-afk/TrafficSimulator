@@ -4,15 +4,15 @@
 
 ## Status
 
-Milestones M0–M7 are implemented. M8 (performance, polish, docs) is in progress.
+Milestones M0–M8 are complete. Every Definition of Done item has evidence below.
 
 - **Engine:** complete for every behaviour in §4. All 71 engine tests pass on Linux (CI last ran them on macOS at `cb06069`).
 - **Soak and fuzz:** clean on the final engine commit `636bfe3`. Raw outputs are in `docs/verification/`:
   - general soak: 70/70;
   - Stress City: 10/10;
   - edit fuzz: 56/56.
-- **App:** the M7 game layer is complete, and its UI tests passed on CI (iPhone) on commit `cb06069`.
-- **CI is currently blocked.** Since run 34, every job fails within seconds without being assigned a runner, including the Linux job. This is an account-level GitHub Actions limit (spending limit or minutes), not the code. App changes made since then (UI test robustness, overlay button, file split) have not been built by CI yet.
+- **App:** builds, and all UI tests pass on an iPhone, an iPhone SE and an iPad in CI.
+- **CI is green:** Linux engine tests, plus the macOS app build and UI tests on three devices, all pass on `main`.
 
 ## Milestones
 
@@ -58,9 +58,13 @@ Milestones M0–M7 are implemented. M8 (performance, polish, docs) is in progres
   - a unit dispatched from a break pulls out as soon as there is a gap.
 - [x] Coverage overlay; response-time metrics.
 
-### M6 — Visual overhaul ✅ (first pass)
+### M6 — Visual overhaul ✅
 - [x] Design system tokens with day/night palettes; terrain; seamless roads; zoom-dependent markings; buildings with shadows; vehicle atlas; lights; overlays; HUD; title over a live city; stats sheet; design preview.
-- [ ] Final self-review of the screenshot set. Blocked: the last screenshots were captured before the landscape screenshot fix and show a rotated image (the app itself was laid out correctly).
+- [x] Final self-review of the screenshot set (`docs/screenshots/`: iPhone, iPhone SE, iPad). The review found four issues, all fixed and re-checked:
+  - the HUD was pushed off-screen on landscape phones when the inspector was open;
+  - screenshots were stored with sideways pixels;
+  - a road drawn onto a road of a different width left an unpaved gap;
+  - rush-hour shots were zoomed out too far to see traffic.
 
 ### M7 — Game layer ✅
 - [x] `Editor`:
@@ -79,13 +83,13 @@ Milestones M0–M7 are implemented. M8 (performance, polish, docs) is in progres
   - rotate/background;
   - launch.
 
-### M8 — Performance & polish (in progress)
+### M8 — Performance & polish ✅
 - [x] Profiled with callgrind and fixed the hot spots (D18). Stress City step time: **9.3 → 3.7 ms at the 1,845-vehicle peak**, **2.9 ms at 1,477 vehicles** (Linux container, no invariant checks). The budget is ≤ 4 ms at 1,500.
 - [x] On the final binary `636bfe3`, measured the same day on the same container: **3.1 ms at 1,441 vehicles** and **4.0 ms at 1,846**. The older binary measured 3.0 ms at 1,434 that day, so the liveness and safety fixes cost about 4 %. That interpolates to ≈ 3.3 ms at 1,500, within budget.
 - [x] Files kept under ~600 lines (police emergency driving, signal plans and scene input split out).
 - [x] `docs/ARCHITECTURE.md`, README rewrite, DECISIONS D15–D22.
 - [x] Final soak and fuzz evidence on the final engine binary `636bfe3` (verification log; outputs in `docs/verification/`).
-- [ ] CI green on the final commit (blocked; see Status).
+- [x] CI green on the final commit (all four jobs).
 
 ## Verification log
 
@@ -103,12 +107,12 @@ Milestones M0–M7 are implemented. M8 (performance, polish, docs) is in progres
 | 2026-10-06 | 3 | Linux | `trafficsim --soak --hours 2 --scenarios stressCity --seeds 1,2,3,4,5` (`636bfe3`) | **10/10 runs, 0 violations.** Peak 1,815–1,991 vehicles. 20–55 gridlocks per run, each detected, reported and released (§10.4) (`docs/verification/stress-636bfe3.txt`) |
 | 2026-10-06 | 3 | Linux | `trafficsim --fuzz --minutes 45 --seeds 1,2,3,4` (7 maps × 2 sides, an edit every 30 s, `636bfe3`) | **56/56 runs, 0 violations.** 3,962 edits applied, 1,078 rejected by validation (`docs/verification/fuzz-636bfe3.txt`) |
 | 2026-10-06 | perf | Linux | `trafficsim --scenario stressCity --minutes 30 --no-check --progress --stages` (`636bfe3`) | 3.1 ms/step @ 1,441 veh; 4.0 ms @ 1,846 veh |
+| 2026-10-07 | 4–5 | CI | app build + UI tests on iPhone, iPhone SE, iPad; Linux engine tests | **all 4 jobs pass**; screenshot set reviewed and committed to `docs/screenshots/` |
 
 ## Where each level runs
 - L1–L3: Linux container (local), CI `engine-linux`, CI `app-macos`.
 - L4–L5: CI `app-macos` (iPhone) and `app-devices` (iPhone SE, iPad).
 
 ## Known issues / next steps
-1. CI is blocked at the account level. Once Actions runs again, check `app-macos` and `app-devices`, then review the screenshot set.
-2. Sound: a placement click only (the system "Tock", which respects the mute switch). No ambient traffic audio; it is optional in the brief.
-3. App changes since CI run 33 (overlay button, CityScene input split, save-on-Return, click sound) were reviewed by hand, but have not been compiled by CI because of item 1.
+1. Sound: a placement click only (the system "Tock", which respects the mute switch). There is no ambient traffic audio; it is optional in the brief.
+2. The bundle identifier is the placeholder `com.example.TrafficSimulator`. Set your own team and bundle id before running on a device or shipping.

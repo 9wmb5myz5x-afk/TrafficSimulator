@@ -378,7 +378,10 @@ final class GameController: ObservableObject {
                     completion?(err)
                 }
             }
-            if wait { write() } else { self.ioQueue.async(execute: write) }
+            // A save the player asked for is written now, at their priority (a
+            // low-priority queue can starve while the device is busy rendering);
+            // autosaves go to the background.
+            if wait || completion != nil { write() } else { self.ioQueue.async(execute: write) }
         }
         if wait { simQueue.sync(execute: work) } else { simQueue.async(execute: work) }
     }

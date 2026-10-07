@@ -38,7 +38,7 @@ final class DrivewayTests: XCTestCase {
         let checker = InvariantChecker()
         sim.invariantChecker = checker
         var leaving = Set<VehicleID>(), arriving = Set<VehicleID>(), joined = Set<VehicleID>()
-        var sawHidden = false, sawFading = false
+        var sawHidden = false, sawFading = false, sawCovered = false
         for _ in 0..<Int(900 / cfg.dt) {
             sim.step()
             for v in sim.vehicles {
@@ -46,6 +46,7 @@ final class DrivewayTests: XCTestCase {
                     if r.inbound { arriving.insert(v.id) } else { leaving.insert(v.id) }
                     if v.visibility == 0 { sawHidden = true }
                     if v.visibility > 0.05 && v.visibility < 0.95 { sawFading = true }
+                    if !r.covered.isEmpty { sawCovered = true }
                 } else if leaving.contains(v.id) && (v.mode == .pullingOut || v.mode == .driving) {
                     joined.insert(v.id)
                 }
@@ -55,6 +56,7 @@ final class DrivewayTests: XCTestCase {
         XCTAssertGreaterThan(joined.count, 10, "cars leaving their driveways join the road")
         XCTAssertGreaterThan(arriving.count, 5)
         XCTAssertTrue(sawHidden && sawFading, "cars fade in and out of their garages")
+        XCTAssertTrue(sawCovered, "back-row houses reach the road past the houses in front (cars hidden under them)")
         XCTAssertEqual(checker.total, 0, checker.summary() + "\n" + checker.samples.prefix(3).map { "\($0)" }.joined(separator: "\n"))
     }
 

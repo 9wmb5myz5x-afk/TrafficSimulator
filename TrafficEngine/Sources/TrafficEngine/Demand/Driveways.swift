@@ -29,6 +29,9 @@ public struct DrivewayRun: Codable, Sendable, Equatable {
     /// Arc length of the garage door: the car is inside the building before
     /// it (leaving) or beyond it (arriving).
     public var door: Double
+    /// Stretches of the path under other buildings (a house behind another
+    /// one reaches the road past it), as start/end arc-length pairs.
+    public var covered: [Double] = []
 }
 
 public extension Vehicle {
@@ -37,8 +40,18 @@ public extension Vehicle {
     var visibility: Double {
         guard mode == .onDriveway, let r = driveway else { return 1 }
         let span = 0.8 * length
-        let out = r.inbound ? 1 - (r.s - r.door) / span : (r.s - r.door) / span
-        return out.clamped(to: 0...1)
+        var out = (r.inbound ? 1 - (r.s - r.door) / span : (r.s - r.door) / span).clamped(to: 0...1)
+        // Hidden while its middle passes under another building.
+        let mid = r.s - length / 2
+        var k = 0
+        while k + 1 < r.covered.count {
+            let a = r.covered[k], b = r.covered[k + 1]
+            // Distance outside the stretch (negative inside it); fades over 1.5 m.
+            let outside = max(a - mid, mid - b)
+            out = min(out, (outside / 1.5).clamped(to: 0...1))
+            k += 2
+        }
+        return out
     }
 }
 
@@ -160,6 +173,28 @@ extension Simulation {
         return nil
     }
 
+    /// Stretches of `path` under buildings other than `b`.
+    func coveredStretches(of path: Polyline, besides b: Building) -> [Double] {
+        let box = path.bounds
+        let near = city.buildings.filter { o in
+            o.id != b.id && o.center.x > box.min.x - 25 && o.center.x < box.max.x + 25
+                && o.center.y > box.min.y - 25 && o.center.y < box.max.y + 25
+        }.map { $0.footprint }
+        guard !near.isEmpty else { return [] }
+        var out: [Double] = []
+        var start: Double?
+        var s = 0.0
+        while s <= path.length {
+            let p = path.point(at: s)
+            let inside = near.contains { Geometry.pointInPolygon(p, $0) }
+            if inside, start == nil { start = s }
+            if !inside, let a = start { out += [a, s]; start = nil }
+            s += 0.5
+        }
+        if let a = start { out += [a, path.length] }
+        return out
+    }
+
     /// Put vehicle `i` in building `b`'s garage (or at its door), about to drive down the driveway.
     func startLeaving(_ i: Int, from b: Building) {
         guard let path = drivewayPath(for: b), let a = b.access else { return }
@@ -168,7 +203,8 @@ extension Simulation {
         vehicles[i].speed = 0
         // Nose at the garage door, the rest of the car still inside.
         let door = garageDoor(on: path, building: b, leaving: true)
-        vehicles[i].driveway = DrivewayRun(path: path, s: min(door + 0.3, path.length), inbound: false, door: door)
+        vehicles[i].driveway = DrivewayRun(path: path, s: min(door + 0.3, path.length), inbound: false, door: door,
+                                           covered: coveredStretches(of: path, besides: b))
         updatePose(&vehicles[i])
     }
 
@@ -178,7 +214,8 @@ extension Simulation {
         let v = vehicles[i]
         let door = garageDoor(on: path, building: b, leaving: false)
         vehicles[i].mode = .onDriveway
-        vehicles[i].driveway = DrivewayRun(path: path, s: v.length, inbound: true, door: door)
+        vehicles[i].driveway = DrivewayRun(path: path, s: v.length, inbound: true, door: door,
+                                           covered: coveredStretches(of: path, besides: b))
         vehicles[i].laneChange = nil
         vehicles[i].modeTimer = 0
         city.buildingSlots[b.id.raw]?.drivewayVehicle = v.id

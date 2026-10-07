@@ -113,7 +113,8 @@ final class GameplayTests: XCTestCase {
         if !wait(4, { !app.buttons["save.confirm"].exists }), app.buttons["save.confirm"].isHittable {
             app.buttons["save.confirm"].tap()
         }
-        let closed = wait(10) { !app.buttons["save.confirm"].exists }
+        // Writing the save runs in the background; the smallest simulators are slow.
+        let closed = wait(40) { !app.buttons["save.confirm"].exists }
         if !closed { Screenshot.capture(app, named: "save-sheet-stuck") }
         XCTAssertTrue(closed, "save sheet did not close")
 

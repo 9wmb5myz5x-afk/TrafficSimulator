@@ -520,8 +520,9 @@ extension Simulation {
             let w = vehicles[j]
             guard w.track == v.track, abs(w.s - v.destination.s) < 14 else { continue }
             let ours = w.origin == v.destination.building || (w.destination.building == v.destination.building && w.destination.kind == .building)
-            // Well behind us, it is no obstacle (and it waits for us).
-            if !ours && w.s < v.s - v.length { continue }
+            // Behind us, it is no obstacle (one leaving waits for us; one
+            // turning in follows its own path).
+            if w.s < v.s - (ours ? 2 : v.length) { continue }
             var busy = w.mode == .pullingOut || w.mode == .pullingIn
             if w.mode == .onDriveway, let run = w.driveway {
                 busy = run.inbound || ours || run.path.length - run.s > 0.05 || abs(w.s - v.destination.s) < 10

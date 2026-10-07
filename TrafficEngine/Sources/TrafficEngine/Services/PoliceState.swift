@@ -456,10 +456,9 @@ extension Simulation {
                 if other.reference.project(spot).distance < half { return false }
             }
         }
-        // Across an idle driveway is fine; not one in use right now.
+        // Never across a driveway mouth: a car may come down it at any time.
         for b in city.buildings {
-            if let a = b.access, a.edge == e, a.s > s - length - 5, a.s < s + 13,
-               b.drivewayVehicle != nil || !b.departureQueue.isEmpty { return false }
+            if let a = b.access, a.edge == e, a.s > s - length - 8, a.s < s + 13 { return false }
         }
         return true
     }

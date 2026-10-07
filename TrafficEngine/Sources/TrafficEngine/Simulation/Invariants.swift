@@ -146,7 +146,7 @@ public final class InvariantChecker {
                         let b = sim.vehicles[j]
                         guard sim.levelsCompatible(a, b) else { continue }
                         if boxA.overlaps(b.footprint, margin: overlapTolerance) {
-                            record(.overlap, t, "\(a.id) [\(a.track) s=\(String(format1(a.s))) lat=\(String(format1(a.lateral)))] overlaps \(b.id) [\(b.track) s=\(String(format1(b.s))) lat=\(String(format1(b.lateral)))]")
+                            record(.overlap, t, "\(a.id) [\(a.mode.rawValue) \(a.track) s=\(String(format1(a.s))) lat=\(String(format1(a.lateral)))] overlaps \(b.id) [\(b.mode.rawValue) \(b.track) s=\(String(format1(b.s))) lat=\(String(format1(b.lateral)))]")
                         }
                     }
                 }

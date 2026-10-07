@@ -239,14 +239,53 @@ final class GameController: ObservableObject {
         }
     }
 
+    /// What the road being drawn would do, worked out as the finger moves
+    /// (main thread; nil when not drawing).
+    @Published private(set) var roadPreview: RoadPreview?
+    private var previewActive = false
+    private var previewBusy = false
+    private var previewQueued: [Vector2]?
+
+    /// Ask for a preview of a road along `points` (nil: drawing finished).
+    /// One preview runs at a time; the latest request waits its turn.
+    func previewRoad(_ points: [Vector2]?) {
+        guard let points else {
+            previewActive = false
+            previewQueued = nil
+            roadPreview = nil
+            return
+        }
+        previewActive = true
+        if previewBusy { previewQueued = points; return }
+        previewBusy = true
+        let o = roadOptions
+        simQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.editor.previewRoad(points, roadClass: o.roadClass, lanes: o.lanes, oneWay: o.oneWay)
+            DispatchQueue.main.async {
+                self.previewBusy = false
+                if self.previewActive { self.roadPreview = result }
+                // The latest request, after a breath (the simulation shares the queue).
+                if self.previewQueued != nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                        guard let q = self.previewQueued else { return }
+                        self.previewQueued = nil
+                        self.previewRoad(q)
+                    }
+                }
+            }
+        }
+    }
+
     /// A finished drag with the road tool.
     func drawRoad(_ points: [Vector2]) {
         let o = roadOptions
         edit { ed, _ -> EditFeedback in
             do {
-                let made = try ed.drawRoad(points, roadClass: o.roadClass, lanes: o.lanes, oneWay: o.oneWay)
-                return EditFeedback(id: 0, message: made.count > 1 ? "Road built with \(made.count - 1) new junction\(made.count == 2 ? "" : "s")" : "Road built",
-                                    ok: true, path: points)
+                let preview = ed.previewRoad(points, roadClass: o.roadClass, lanes: o.lanes, oneWay: o.oneWay)
+                try ed.drawRoad(points, roadClass: o.roadClass, lanes: o.lanes, oneWay: o.oneWay)
+                return EditFeedback(id: 0, message: preview.builtMessage, ok: true,
+                                    path: preview.centrelines.isEmpty ? points : preview.centrelines.flatMap { $0 })
             } catch {
                 return EditFeedback(id: 0, message: GameController.message(for: error), ok: false, path: points)
             }
@@ -476,7 +515,7 @@ final class GameController: ObservableObject {
                                            roads: all.roads, junctions: all.junctions,
                                            roundabouts: RenderGeometryBuilder.roundabouts(net),
                                            buildings: buildings,
-                                           driveways: sim.city.buildings.flatMap { sim.drivewaySurfaces(for: $0) },
+                                           driveways: sim.city.buildings.flatMap { sim.drivewayStrokes(for: $0) },
                                            terrain: sim.terrain, outskirts: sim.outskirts(margin: 1100),
                                            bounds: (lo, hi)))
     }

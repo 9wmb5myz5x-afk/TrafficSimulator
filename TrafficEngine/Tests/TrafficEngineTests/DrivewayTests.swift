@@ -21,7 +21,7 @@ final class DrivewayTests: XCTestCase {
                     // Leaving: heading with the traffic, at the mouth angle.
                     let turn = DMath.angleDifference(edge.reference.tangent(at: a.s).angle, path.endTangent.angle)
                     XCTAssertEqual(abs(turn), Simulation.drivewayMouthAngle, accuracy: 0.05)
-                    XCTAssertGreaterThanOrEqual(sim.drivewaySurfaces(for: b).count, 2)
+                    XCTAssertGreaterThanOrEqual(sim.drivewayStrokes(for: b).count, 2)
                 }
                 XCTAssertGreaterThan(count, 50)
             }

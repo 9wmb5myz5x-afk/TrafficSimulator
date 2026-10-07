@@ -47,9 +47,10 @@ struct GameView: View {
                     }
                     if settings.showDebugOverlay { DebugOverlay(hud: game.hud) }
                     if game.tool != .inspect {
-                        Text(game.tool.hint)
+                        // While drawing a road: what it will do (or why it can't).
+                        Text(game.roadPreview?.summary ?? game.tool.hint)
                             .font(.system(.caption, design: .rounded).weight(.semibold))
-                            .foregroundStyle(Theme.color(.uiMuted))
+                            .foregroundStyle(game.roadPreview.map { $0.ok ? Theme.color(.uiInk) : Theme.color(.signalRed) } ?? Theme.color(.uiMuted))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .floatingSurface(radius: 12)

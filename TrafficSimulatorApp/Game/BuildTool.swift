@@ -84,6 +84,29 @@ enum BuildTool: Hashable {
     }
 }
 
+extension RoadPreview {
+    /// One line for the hint bar while drawing.
+    var summary: String {
+        if let error { return error.rawValue }
+        return (["Release to build"] + details).joined(separator: " · ")
+    }
+
+    /// The toast after building.
+    var builtMessage: String {
+        details.isEmpty ? "Road built" : "Road built: " + details.joined(separator: ", ")
+    }
+
+    private var details: [String] {
+        var out: [String] = []
+        if junctions > 0 { out.append("\(junctions) junction\(junctions == 1 ? "" : "s")") }
+        if bridges > 0 { out.append(bridges == 1 ? "a bridge" : "\(bridges) bridges") }
+        if overpasses > 0 { out.append("passes over \(overpasses) road\(overpasses == 1 ? "" : "s")") }
+        let loose = ends.filter { !$0.attached }.count
+        if loose > 0 { out.append(loose == 1 ? "1 dead end" : "\(loose) dead ends") }
+        return out
+    }
+}
+
 /// Options for drawing / restyling roads.
 struct RoadOptions: Equatable {
     var roadClass: RoadClass = .local
@@ -91,6 +114,13 @@ struct RoadOptions: Equatable {
     var oneWay = false
 
     static let classes: [RoadClass] = [.local, .collector, .arterial, .highway]
+
+    /// Width of the road surface [m] (for the drawing preview).
+    var surfaceWidth: Double {
+        let lane = roadClass == .highway ? 3.7 : 3.5
+        let lanesTotal = Double(lanes * (oneWay ? 1 : 2))
+        return lanesTotal * lane + (roadClass == .highway && !oneWay ? 3 : 0) + 1.5
+    }
 }
 
 /// Result of an edit, for the toast, the haptic and the ghost.

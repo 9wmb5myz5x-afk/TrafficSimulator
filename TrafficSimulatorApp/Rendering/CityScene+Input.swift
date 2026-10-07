@@ -89,12 +89,20 @@ extension CityScene: UIGestureRecognizerDelegate {
             }
             if let last = stroke?.last, last.distance(to: w) >= 2.5 { stroke?.append(w) }
             updateStrokeNode()
+            let drawingRoad = controller?.tool == .drawRoad
+            if drawingRoad, let pts = stroke, pts.count >= 2 { controller?.previewRoad(Self.straightened(pts + [w])) }
             if g.state == .ended || g.state == .cancelled || g.state == .failed {
                 let pts = stroke ?? []
                 stroke = nil
                 strokeNode?.removeFromParent()
                 strokeNode = nil
-                if g.state == .ended, pts.count >= 2 { onDraw?(pts + [w], Double(max(4, 22 * camScale))) }
+                previewNode?.removeFromParent()
+                previewNode = nil
+                shownPreview = nil
+                if drawingRoad { controller?.previewRoad(nil) }
+                if g.state == .ended, pts.count >= 2 {
+                    onDraw?(drawingRoad ? Self.straightened(pts + [w]) : pts + [w], Double(max(4, 22 * camScale)))
+                }
             }
             return
         }
@@ -228,6 +236,52 @@ extension CityScene: UIGestureRecognizerDelegate {
     }
 
     // MARK: Drawing
+
+    /// A drag that is nearly straight becomes exactly straight.
+    static func straightened(_ pts: [Vector2]) -> [Vector2] {
+        guard let a = pts.first, let b = pts.last, pts.count > 2 else { return pts }
+        let chord = a.distance(to: b)
+        guard chord > 10 else { return pts }
+        let worst = pts.map { Geometry.pointSegmentDistanceSquared($0, a, b) }.max() ?? 0
+        return worst.squareRoot() < max(2.5, chord * 0.035) ? [a, b] : pts
+    }
+
+    /// The road the drag would build, as the engine works it out: the
+    /// smoothed road in green (or red, if it can't be built), with markers
+    /// where its ends join the network.
+    func updateRoadPreview() {
+        guard stroke != nil, let p = controller?.roadPreview else { return }
+        guard p != shownPreview else { return }
+        shownPreview = p
+        previewNode?.removeFromParent()
+        let node = SKNode()
+        let color = p.ok ? Theme.ui(.signalGreen) : Theme.ui(.signalRed)
+        let width = CGFloat(controller?.roadOptions.surfaceWidth ?? 8)
+        for line in p.centrelines where line.count >= 2 {
+            let body = SKShapeNode(path: path(line, closed: false))
+            body.strokeColor = color.withAlphaComponent(0.42)
+            body.lineWidth = width
+            body.lineCap = .round
+            body.lineJoin = .round
+            node.addChild(body)
+            let centre = SKShapeNode(path: path(line, closed: false))
+            centre.strokeColor = UIColor.white.withAlphaComponent(0.8)
+            centre.lineWidth = 0.6
+            node.addChild(centre)
+        }
+        for e in p.ends {
+            let dot = SKShapeNode(circleOfRadius: max(2.5, width * 0.32))
+            dot.position = cg(e.position)
+            dot.fillColor = e.attached ? Theme.ui(.uiAccent) : .clear
+            dot.strokeColor = Theme.ui(.uiAccent)
+            dot.lineWidth = 1.2
+            node.addChild(dot)
+        }
+        ghostLayer.addChild(node)
+        previewNode = node
+        // The raw finger trail stays faintly visible underneath.
+        strokeNode?.alpha = 0.35
+    }
 
     func updateStrokeNode() {
         guard let pts = stroke, pts.count >= 2 else { return }

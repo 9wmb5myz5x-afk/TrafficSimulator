@@ -82,8 +82,8 @@ struct StaticGeometry {
     var junctions: [JunctionRenderData]
     var roundabouts: [RoundaboutRenderData]
     var buildings: [BuildingSprite]
-    /// Paved driveway outlines (a few simple polygons per building).
-    var driveways: [[Vector2]]
+    /// Driveway paving (a few strokes per building).
+    var driveways: [DrivewayStroke]
     var terrain: Terrain
     /// The countryside around the map (scenery).
     var outskirts: Outskirts

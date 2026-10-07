@@ -92,6 +92,9 @@ final class CityScene: SKScene {
     /// The stroke being drawn (nil while panning the camera).
     var stroke: [Vector2]?
     var strokeNode: SKShapeNode?
+    /// The engine's preview of the road being drawn.
+    var previewNode: SKNode?
+    var shownPreview: RoadPreview?
 
     override func didMove(to view: SKView) {
         scaleMode = .resizeFill
@@ -122,6 +125,7 @@ final class CityScene: SKScene {
         let dt = lastFrameTime == 0 ? 0 : min(currentTime - lastFrameTime, 0.1)
         lastFrameTime = currentTime
         stepCamera(dt: dt)
+        updateRoadPreview()
         guard let controller else { return }
         if let g = controller.buffer.latestGeometry(), g.networkVersion != networkVersion || g.cityVersion != cityVersion {
             let networkChanged = g.networkVersion != networkVersion
@@ -473,15 +477,29 @@ final class CityScene: SKScene {
         let previous = Set(buildingLayer.children.compactMap { $0.userData?["id"] as? Int })
         shadowLayer.removeAllChildren()
         buildingLayer.removeAllChildren()
-        // Driveways: paved like the road, under the buildings' shadows.
+        // Driveways: paved like the road, under the buildings' shadows. All of
+        // them as a couple of compound strokes (thousands of separate shapes
+        // would swamp the renderer).
         let paving = Theme.ui(.road, phase: phase), kerb = Theme.ui(.roadEdge, phase: phase)
-        for d in g.driveways {
-            let n = shape(d, fill: paving)
-            n.zPosition = -2
-            let edge = shape(d, fill: nil, stroke: kerb, width: 0.5)
-            edge.zPosition = -3
-            shadowLayer.addChild(edge)
-            shadowLayer.addChild(n)
+        var byWidth: [Int: CGMutablePath] = [:]
+        for d in g.driveways where d.points.count >= 2 {
+            let key = Int((d.width * 2).rounded())
+            let p = byWidth[key] ?? CGMutablePath()
+            p.addLines(between: d.points.map { cg($0) })
+            byWidth[key] = p
+        }
+        for (key, p) in byWidth {
+            let w = CGFloat(key) / 2
+            for (color, width, z) in [(kerb, w + 0.6, CGFloat(-3)), (paving, w, CGFloat(-2))] {
+                let n = SKShapeNode(path: p)
+                n.strokeColor = color
+                n.lineWidth = width
+                n.lineCap = .round
+                n.lineJoin = .round
+                n.fillColor = .clear
+                n.zPosition = z
+                shadowLayer.addChild(n)
+            }
         }
         for b in g.buildings {
             let f = Vector2.unit(angle: b.rotation), r = f.perpendicular

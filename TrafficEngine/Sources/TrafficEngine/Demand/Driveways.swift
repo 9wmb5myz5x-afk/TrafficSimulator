@@ -13,6 +13,12 @@
 //  same path a car length behind.
 //
 
+/// A stretch of driveway paving: a centre line and its width.
+public struct DrivewayStroke: Sendable, Equatable {
+    public var points: [Vector2]
+    public var width: Double
+}
+
 /// A car on a driveway path.
 public struct DrivewayRun: Codable, Sendable, Equatable {
     public var path: Polyline
@@ -80,7 +86,8 @@ extension Simulation {
         let k0 = d.mouth - d.exit * 3.5
         let out = (d.door - k0).dot(d.outward), along = (d.door - k0).dot(d.along)
         func path(_ start: Vector2, _ dir: Vector2, _ k: Double) -> Polyline {
-            let c = max(1, start.distance(to: k0) * k)
+            // A long driveway (a house set far back) runs straight, then turns.
+            let c = min(max(1, start.distance(to: k0) * k), 9)
             return Polyline(Curves.cubic(start, start + dir * c, k0 - d.exit * c, k0, segments: 16) + [d.mouth])
         }
         if out >= 4 && along <= 0.4 * out && along >= -1.5 * out {
@@ -116,34 +123,24 @@ extension Simulation {
         return found ?? (leaving ? 0 : path.length)
     }
 
-    /// The paved area of a building's driveway, as simple polygons: a strip
-    /// along the way out, one along the way in, and an apron flaring out
-    /// where the driveway meets the road.
-    public func drivewaySurfaces(for b: Building) -> [[Vector2]] {
+    /// The paved area of a building's driveway, as strokes to draw (a line
+    /// and its width): the way out, the way in, and the apron where the
+    /// driveway meets the road.
+    public func drivewayStrokes(for b: Building) -> [DrivewayStroke] {
         guard let path = drivewayPath(for: b), let a = b.access, let edge = network.edge(a.edge),
               let lane = edge.lane(a.lane), let d = drivewayFrame(for: b) else { return [] }
-        func strip(_ p: Polyline, half: Double) -> [Vector2] {
-            var left: [Vector2] = [], right: [Vector2] = []
-            let n = max(2, Int(p.length / 1.5))
-            for k in 0...n {
-                let s = p.length * Double(k) / Double(n)
-                left.append(p.position(at: s, lateral: half))
-                right.append(p.position(at: s, lateral: -half))
-            }
-            return left + right.reversed()
-        }
-        var out = [strip(path, half: 1.6)]
+        var out = [DrivewayStroke(points: path.points, width: 3.2)]
         if let end = drivewayEnds(for: b).first {
-            out.append(strip(Polyline([d.mouth - d.exit * 3, end.point]), half: 1.6))
+            out.append(DrivewayStroke(points: [d.mouth - d.exit * 3, end.point], width: 3.2))
         }
-        // The apron, in the edge frame: from the edge of the carriageway to a
-        // little beyond the mouth, wide at the road and narrowing inwards.
+        // The apron: from the edge of the carriageway to just beyond the mouth.
         let o: Double = a.drivewayLateral >= lane.lateral ? 1 : -1
-        let roadEdge = lane.lateral + o * (lane.width / 2 + edge.roadClass.shoulderWidth - 0.2)
-        let back = a.drivewayLateral + o * 1.6
-        let s0 = max(0, a.s - 10), s1 = min(edge.length, a.s + 9)
-        out.append([edge.position(s: s0, lateral: roadEdge), edge.position(s: s1, lateral: roadEdge),
-                    edge.position(s: min(s1, a.s + 3.5), lateral: back), edge.position(s: max(s0, a.s - 7), lateral: back)])
+        let roadEdge = lane.lateral + o * (lane.width / 2 + edge.roadClass.shoulderWidth - 0.3)
+        let back = a.drivewayLateral + o * 1.2
+        let mid = (roadEdge + back) / 2
+        let s0 = max(0, a.s - 6), s1 = min(edge.length, a.s + 6)
+        let pts = stride(from: s0, through: s1, by: 2).map { edge.position(s: $0, lateral: mid) }
+        out.append(DrivewayStroke(points: pts, width: abs(back - roadEdge)))
         return out
     }
 
@@ -220,12 +217,24 @@ extension Simulation {
         var a = ((target - v.speed) / dt).clamped(to: -3.0...accMax)
         // Turning in: until off the lane, keep behind whoever is ahead in it.
         if run.inbound, case .edge(let e) = v.track, let edge = network.edge(e), let lane = edge.lane(v.lane) {
+            let band = lane.width / 2 + v.width / 2 + 0.3
             let p = edge.reference.project(v.front)
-            if abs(p.lateral - lane.lateral) < lane.width / 2 + v.width / 2 + 0.3,
+            if abs(p.lateral - lane.lateral) < band,
                let o = leader(in: laneOcc[laneKey(e, v.lane)], after: p.s, excluding: i) {
+                // How far along the lane the front still goes before it is off it.
+                var exitS = p.s, k = run.s
+                while k < run.path.length {
+                    let q = edge.reference.project(run.path.point(at: k))
+                    exitS = q.s
+                    if abs(q.lateral - lane.lateral) >= band { break }
+                    k += 1
+                }
                 let w = vehicles[Int(o.index)]
-                a = min(a, IDM.acceleration(v.driver.idm, speed: v.speed, desiredSpeed: Self.drivewaySpeed,
-                                            gap: o.s - w.length - p.s, leaderSpeed: w.speed))
+                // Only a car in that stretch is in the way.
+                if o.s - w.length < exitS + 1 {
+                    a = min(a, IDM.acceleration(v.driver.idm, speed: v.speed, desiredSpeed: Self.drivewaySpeed,
+                                                gap: o.s - w.length - p.s, leaderSpeed: w.speed))
+                }
             }
         }
         a = max(a, -IDM.emergencyDeceleration)

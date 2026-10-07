@@ -25,6 +25,25 @@ public enum EditError: String, Error, Sendable {
     case tooSharp = "Too sharp a bend or angle for traffic."
 }
 
+/// The outcome of drawing a road, worked out before it is built.
+public struct RoadPreview: Sendable, Equatable {
+    public struct End: Sendable, Equatable {
+        public var position: Vector2
+        /// Joins an existing road or junction (rather than ending in a dead end).
+        public var attached: Bool
+    }
+    public var ok = false
+    public var error: EditError?
+    /// Centrelines of the roads that would be built.
+    public var centrelines: [[Vector2]] = []
+    public var ends: [End] = []
+    public var junctions = 0
+    public var bridges = 0
+    /// Roads crossed at another level (passing over or under them).
+    public var overpasses = 0
+    public init() {}
+}
+
 public enum EditKind: String, Codable, Sendable {
     case drawRoad, removeRoad, changeRoad, setControl, moveJunction, roundabout, placeBuilding, removeBuilding, togglePockets
 }
@@ -49,15 +68,18 @@ public final class Editor {
 
     public init(sim: Simulation) { self.sim = sim }
 
-    private var net: RoadNetwork { sim.network }
+    /// A scratch copy of the network being edited in a dry run (`previewRoad`).
+    private var scratch: RoadNetwork?
+    private var net: RoadNetwork { scratch ?? sim.network }
+    /// `problems()` of the live network, by network version (previews reuse it).
+    private var problemCache: (version: Int, problems: Set<String>, short: [Int: Double])?
 
     /// Apply a network edit; reject it (leaving the network untouched) if it
     /// would create a road stub too short to drive or a junction whose roads
     /// meet at too sharp an angle.
     private func networkEdit(_ kind: EditKind, _ body: () throws -> Void) throws {
         let before = net.data
-        let problemsBefore = problems()
-        let shortBefore = shortLengths()
+        let (problemsBefore, shortBefore) = liveProblems()
         do {
             try body()
         } catch {
@@ -76,6 +98,14 @@ public final class Editor {
         }
         push(EditRecord(kind: kind, networkBefore: before, networkAfter: net.data))
         sim.networkDidChange()
+    }
+
+    private func liveProblems() -> (Set<String>, [Int: Double]) {
+        let v = sim.network.version
+        if let c = problemCache, c.version == v { return (c.problems, c.short) }
+        let p = problems(), s = shortLengths()
+        problemCache = (v, p, s)
+        return (p, s)
     }
 
     /// Minimum drivable length of a carriageway between junctions [m].
@@ -200,6 +230,73 @@ public final class Editor {
         return made
     }
 
+    /// What drawing a road along `points` would do, without doing it: the
+    /// smoothed shape that would be built, where its ends attach, how many
+    /// junctions, bridges and overpasses it makes — or why it can't be built.
+    /// Runs on a scratch copy of the network.
+    public func previewRoad(_ points: [Vector2], roadClass: RoadClass, lanes: Int? = nil, oneWay: Bool = false) -> RoadPreview {
+        var out = RoadPreview()
+        let line = Self.simplify(points, tolerance: 1.5)
+        guard line.count >= 2, Polyline(line).length >= 20 else { out.error = .tooShort; return out }
+        if let l = lanes, !(1...4).contains(l) { out.error = .invalidLanes; return out }
+        guard sim.terrain.contains(line.first!), sim.terrain.contains(line.last!) else { out.error = .outOfBounds; return out }
+        let (problemsBefore, shortBefore) = liveProblems()
+        let live = sim.network
+        let copy = RoadNetwork(data: live.data)
+        copy.config = live.config
+        scratch = copy
+        defer { scratch = nil }
+        let nodesBefore = live.data.nodes.count
+        do {
+            var thrown: Error?
+            var made: [RoadID] = []
+            copy.batch {
+                do { made = try buildChain(Polyline(line), roadClass: roadClass, lanes: lanes, oneWay: oneWay) } catch { thrown = error }
+            }
+            if let e = thrown { throw e }
+            var added = problems().subtracting(problemsBefore)
+            for (road, len) in shortLengths() {
+                if let before = shortBefore[road], len < before - 0.25 { added.insert("short:\(road)") }
+            }
+            if !added.isEmpty {
+                out.error = added.contains { $0.hasPrefix("angle") || $0.hasPrefix("kink") } ? .tooSharp : .tooCloseToJunction
+            }
+            for id in made {
+                guard let r = copy.road(id), let c = copy.centreline(of: id) else { continue }
+                out.centrelines.append(c.points)
+                if r.isBridge { out.bridges += 1 }
+            }
+            // Ends: attached to something that was already there, or new.
+            if let first = made.first.flatMap({ copy.road($0) }), let last = made.last.flatMap({ copy.road($0) }) {
+                for n in [first.a, last.b] {
+                    guard let node = copy.node(n) else { continue }
+                    out.ends.append(RoadPreview.End(position: node.position, attached: n.raw < nodesBefore || copy.degree(of: n) > 1))
+                }
+            }
+            // New junctions: nodes of the new roads where three or more roads meet.
+            var nodes = Set<NodeID>()
+            for id in made { if let r = copy.road(id) { nodes.insert(r.a); nodes.insert(r.b) } }
+            out.junctions = nodes.filter { copy.degree(of: $0) >= 3 }.count
+            // Roads it passes over or under (other levels).
+            let level = roadClass == .highway ? 1 : 0
+            let poly = Polyline(line)
+            for r in live.allRoads where r.level != level {
+                guard let other = live.centreline(of: r.id) else { continue }
+                var crosses = false
+                for i in 0..<(poly.points.count - 1) where !crosses {
+                    for j in 0..<(other.points.count - 1) where Self.intersection(poly.points[i], poly.points[i + 1], other.points[j], other.points[j + 1]) != nil {
+                        crosses = true; break
+                    }
+                }
+                if crosses { out.overpasses += 1 }
+            }
+        } catch {
+            out.error = (error as? EditError) ?? .placement
+        }
+        out.ok = out.error == nil
+        return out
+    }
+
     /// Snap a point to a junction / split a road / make a node.
     private func anchor(_ p: Vector2, level: Int) -> NodeID {
         if let n = net.allNodes.filter({ !$0.isRegionalConnection || $0.position.distance(to: p) < 6 })
@@ -216,6 +313,7 @@ public final class Editor {
 
     private func buildChain(_ poly: Polyline, roadClass: RoadClass, lanes: Int?, oneWay: Bool) throws -> [RoadID] {
         let level = roadClass == .highway ? 1 : 0
+        let firstNewNode = net.data.nodes.count
         // Crossings with existing roads at the same level (by arc length along the new road).
         var cuts: [(s: Double, p: Vector2, road: RoadID)] = []
         for r in net.allRoads where r.level == level {
@@ -259,6 +357,10 @@ public final class Editor {
             made.append(id)
         }
         guard !made.isEmpty else { throw EditError.tooCloseToJunction }
+        // New junctions on an elevated road are elevated too.
+        if level != 0 {
+            for stop in stops where stop.node.raw >= firstNewNode { net.updateNode(stop.node) { $0.level = level } }
+        }
         return made
     }
 

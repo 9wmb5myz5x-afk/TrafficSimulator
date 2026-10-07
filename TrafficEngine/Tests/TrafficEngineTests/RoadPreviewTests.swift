@@ -39,8 +39,7 @@ final class RoadPreviewTests: XCTestCase {
         XCTAssertThrowsError(try editor.drawRoad(hairpin, roadClass: .local))
     }
 
-    /// A highway passes over the streets it crosses (no junctions), and its
-    /// new junctions are raised with it.
+    /// A highway passes over the streets it crosses (no junctions).
     func testHighwayPassesOverStreets() throws {
         let sim = ScenarioFactory.make(.corridor, side: .right, seed: 3)
         let editor = Editor(sim: sim)
@@ -49,10 +48,9 @@ final class RoadPreviewTests: XCTestCase {
         XCTAssertTrue(p.ok, "\(String(describing: p.error))")
         XCTAssertEqual(p.junctions, 0)
         XCTAssertGreaterThanOrEqual(p.overpasses, 1)
-        let nodes = sim.network.data.nodes.count
         let made = try editor.drawRoad(stroke, roadClass: .highway, lanes: 2)
         XCTAssertEqual(made.count, 1)
-        for n in sim.network.allNodes where n.id.raw >= nodes { XCTAssertEqual(n.level, 1) }
+        XCTAssertEqual(sim.network.road(made[0])?.level, 1)
     }
 
     /// Fast enough to run while the finger moves, even on the biggest map.

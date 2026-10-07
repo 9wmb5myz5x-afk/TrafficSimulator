@@ -79,7 +79,8 @@ public final class Editor {
     /// meet at too sharp an angle.
     private func networkEdit(_ kind: EditKind, _ body: () throws -> Void) throws {
         let before = net.data
-        let (problemsBefore, shortBefore) = liveProblems()
+        let problemsBefore = problems()
+        let shortBefore = shortLengths()
         do {
             try body()
         } catch {
@@ -152,6 +153,12 @@ public final class Editor {
             }
         }
         out.formUnion(Self.encroachments(net))
+        // Two roads between the same pair of junctions lie on top of each other.
+        var pairs = Set<String>()
+        for r in net.allRoads where !ring.contains(r.id.raw) {
+            let key = "dup:\(min(r.a.raw, r.b.raw))-\(max(r.a.raw, r.b.raw))"
+            if !pairs.insert(key).inserted { out.insert(key) }
+        }
         return out
     }
 
@@ -313,7 +320,6 @@ public final class Editor {
 
     private func buildChain(_ poly: Polyline, roadClass: RoadClass, lanes: Int?, oneWay: Bool) throws -> [RoadID] {
         let level = roadClass == .highway ? 1 : 0
-        let firstNewNode = net.data.nodes.count
         // Crossings with existing roads at the same level (by arc length along the new road).
         var cuts: [(s: Double, p: Vector2, road: RoadID)] = []
         for r in net.allRoads where r.level == level {
@@ -357,10 +363,6 @@ public final class Editor {
             made.append(id)
         }
         guard !made.isEmpty else { throw EditError.tooCloseToJunction }
-        // New junctions on an elevated road are elevated too.
-        if level != 0 {
-            for stop in stops where stop.node.raw >= firstNewNode { net.updateNode(stop.node) { $0.level = level } }
-        }
         return made
     }
 

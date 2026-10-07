@@ -1,0 +1,6 @@
+vehicles=458 spawned=7912 completed=7454 avgTrip=529s missedTurns=1924 reroutes=5467 forcedStops=0
+invariants: 0 violations in 96000 steps (max 2199 vehicles)
+vehicles=532 spawned=7982 completed=7450 avgTrip=529s missedTurns=1845 reroutes=4889 forcedStops=0
+invariants: 3 violations [stuck=3] in 96000 steps
+vehicles=533 spawned=8158 completed=7625 avgTrip=507s missedTurns=1777 reroutes=5391 forcedStops=0
+invariants: 1 violations [stuck=1] in 96000 steps

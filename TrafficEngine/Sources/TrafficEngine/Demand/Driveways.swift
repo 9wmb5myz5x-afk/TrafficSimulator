@@ -112,6 +112,26 @@ extension Simulation {
         return path(k0 + d.outward * 5 - d.along * 3.2, -d.outward, 0.37)
     }
 
+    /// True if `path` stays clear of every road but the building's own (a road
+    /// drawn between a building and its street cuts its driveway).
+    func drivewayClear(_ path: Polyline, of b: Building) -> Bool {
+        guard let a = b.access else { return false }
+        let box = path.bounds
+        for road in network.allRoads where road.id != a.road {
+            guard let line = network.centreline(of: road.id) else { continue }
+            let half = Double(road.lanesForward + road.lanesBackward) * road.roadClass.laneWidth / 2
+                + road.roadClass.medianWidth / 2 + road.roadClass.shoulderWidth + 1.5
+            let lb = line.bounds
+            if lb.max.x < box.min.x - half || lb.min.x > box.max.x + half || lb.max.y < box.min.y - half || lb.min.y > box.max.y + half { continue }
+            var s = 0.0
+            while s <= path.length {
+                if line.project(path.point(at: s)).distance < half { return false }
+                s += 2
+            }
+        }
+        return true
+    }
+
     /// Where a car turning in ends up (the front door, or inside a building
     /// close to the road), and the direction it faces there.
     func drivewayEnds(for b: Building) -> [(point: Vector2, direction: Vector2)] {
@@ -141,7 +161,7 @@ extension Simulation {
     /// driveway meets the road.
     public func drivewayStrokes(for b: Building) -> [DrivewayStroke] {
         guard let path = drivewayPath(for: b), let a = b.access, let edge = network.edge(a.edge),
-              let lane = edge.lane(a.lane), let d = drivewayFrame(for: b) else { return [] }
+              let lane = edge.lane(a.lane), let d = drivewayFrame(for: b), drivewayClear(path, of: b) else { return [] }
         var out = [DrivewayStroke(points: path.points, width: 3.2)]
         if let end = drivewayEnds(for: b).first {
             out.append(DrivewayStroke(points: [d.mouth - d.exit * 3, end.point], width: 3.2))
@@ -197,7 +217,19 @@ extension Simulation {
 
     /// Put vehicle `i` in building `b`'s garage (or at its door), about to drive down the driveway.
     func startLeaving(_ i: Int, from b: Building) {
-        guard let path = drivewayPath(for: b), let a = b.access else { return }
+        guard let a = b.access else { return }
+        guard let path = drivewayPath(for: b), drivewayClear(path, of: b) else {
+            // No usable driveway (a road cuts across it): wait unseen just
+            // off the kerb, as cars did before driveways were driven.
+            let laneLat = network.edge(a.edge)?.lane(a.lane)?.lateral ?? 0
+            let outward: Double = a.drivewayLateral >= laneLat ? 1 : -1
+            vehicles[i].mode = .waitingToEnter
+            vehicles[i].lateral = a.drivewayLateral + outward * 3.5
+            vehicles[i].speed = 0
+            vehicles[i].driveway = nil
+            updatePose(&vehicles[i])
+            return
+        }
         vehicles[i].mode = .onDriveway
         vehicles[i].lateral = a.drivewayLateral
         vehicles[i].speed = 0
@@ -236,7 +268,7 @@ extension Simulation {
             // path it actually came along; and a car length on into the garage.
             let curve = Curves.cubic(v.front, v.front + h * c0, end.point - end.direction * c, end.point, segments: 14)
             let path = Polyline([v.front - h * v.length] + curve + [end.point + end.direction * (v.length + 0.5)])
-            if path.minimumRadius >= 3 { return path }
+            if path.minimumRadius >= 3, drivewayClear(Polyline(curve), of: b) { return path }
         }
         return nil
     }

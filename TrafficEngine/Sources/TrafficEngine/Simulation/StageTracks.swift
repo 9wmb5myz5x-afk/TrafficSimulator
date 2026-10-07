@@ -261,10 +261,15 @@ extension Simulation {
         let changed = network.allEdges.filter { $0.id.raw >= oldRefs.count || oldRefs[$0.id.raw] == nil || !unchanged($0.id) }
         func runOver(_ v: Vehicle) -> Bool {
             guard let cur = v.currentEdge.flatMap({ network.edge($0) }) else { return false }
+            // On a driveway: the rest of its way up or down the driveway too.
+            var probes = [v.front, v.center]
+            if v.mode == .onDriveway, let run = v.driveway {
+                probes += stride(from: run.s, through: run.path.length, by: 2).map { run.path.point(at: $0) } + [run.path.end]
+            }
             for other in changed where other.road != cur.road {
                 let b = other.reference.bounds
                 let half = (other.lanes.map { abs($0.lateral) + $0.width / 2 }.max() ?? 3.5) + v.width / 2 + 0.3
-                for p in [v.front, v.center] {
+                for p in probes {
                     guard p.x > b.min.x - half, p.x < b.max.x + half, p.y > b.min.y - half, p.y < b.max.y + half else { continue }
                     if other.reference.project(p).distance < half { return true }
                 }

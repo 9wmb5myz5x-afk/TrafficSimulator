@@ -178,7 +178,7 @@ extension Simulation {
         var active = 0
         var speedSum = 0.0
         var congestedCount = 0
-        for v in vehicles where v.mode != .finished && v.mode != .waitingToEnter {
+        for v in vehicles where v.mode != .finished && v.mode != .waitingToEnter && v.mode != .onDriveway {
             active += 1
             speedSum += v.speed
             m.state.aggregate.vkt += v.speed * dt / 1000

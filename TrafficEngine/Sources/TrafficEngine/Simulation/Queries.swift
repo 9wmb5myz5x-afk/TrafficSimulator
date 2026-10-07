@@ -58,6 +58,7 @@ extension Simulation {
         if v.siren { return "Responding with lights and siren" }
         switch v.mode {
         case .waitingToEnter: return "Waiting to pull out"
+        case .onDriveway: return (v.driveway?.inbound ?? false) ? "Turning into the driveway" : (v.speed > 0.1 ? "Driving down the driveway" : "Waiting to pull out")
         case .pullingOut: return "Pulling out of the driveway"
         case .pullingIn: return "Turning into the driveway"
         case .parkedAtKerb: return v.hazard ? "On scene" : "Parked at the kerb"

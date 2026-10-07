@@ -85,7 +85,13 @@ final class DemandTests: XCTestCase {
                 guard case .edge(let e) = v.track, let edge = sim.network.edge(e), let lane = edge.lane(v.lane) else {
                     XCTFail("\(v.id) appeared off an edge: \(v.track)"); continue
                 }
-                if v.mode == .waitingToEnter || v.mode == .pullingOut {
+                if v.mode == .onDriveway {
+                    // At the building, up its driveway: clear of the carriageway.
+                    let lat = edge.reference.project(v.center).lateral
+                    XCTAssertGreaterThan(abs(lat - lane.lateral), lane.width / 2 + 1, "\(v.id) appeared in a lane")
+                    XCTAssertEqual(v.driveway?.inbound, false)
+                    driveways += 1
+                } else if v.mode == .waitingToEnter || v.mode == .pullingOut {
                     XCTAssertGreaterThan(abs(v.lateral - lane.lateral), lane.width / 2 + 1, "\(v.id) appeared in a lane")
                     driveways += 1
                 } else {
@@ -96,6 +102,13 @@ final class DemandTests: XCTestCase {
             }
             for (id, v) in last where now[id] == nil {
                 if v.mode == .pullingIn {
+                    pulledIn += 1
+                } else if v.mode == .onDriveway, let run = v.driveway, run.inbound,
+                          case .edge(let e) = v.track, let edge = sim.network.edge(e), let lane = edge.lane(v.lane) {
+                    // Parked at the top of the driveway, well off the road.
+                    let lat = edge.reference.project(v.front).lateral
+                    XCTAssertGreaterThan(abs(lat - lane.lateral), lane.width / 2 + 2, "\(id) vanished near the lane")
+                    XCTAssertLessThan(run.path.length - run.s, 0.5, "\(id) vanished before reaching the building")
                     pulledIn += 1
                 } else {
                     guard case .edge(let e) = v.track, let edge = sim.network.edge(e) else {

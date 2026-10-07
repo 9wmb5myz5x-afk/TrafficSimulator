@@ -74,7 +74,9 @@ final class GameplayTests: XCTestCase {
         tap(app, "palette.roads")
         XCTAssertTrue(app.buttons["tool.road"].waitForExistence(timeout: 3))
         point(app, -520, 0).press(forDuration: 0.15, thenDragTo: point(app, -265, 0))
-        let drew = toast(app).waitForExistence(timeout: 5)
+        // The toast is brief (a slow accessibility snapshot can miss it): an
+        // undoable edit is the same evidence.
+        let drew = wait(6) { toast(app).exists || app.buttons["tool.undo"].isEnabled }
         Screenshot.capture(app, named: "build-road")
         XCTAssertTrue(drew, "no feedback after drawing")
 

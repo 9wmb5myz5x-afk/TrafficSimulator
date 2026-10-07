@@ -22,6 +22,8 @@ struct VehiclePose: Equatable {
     var color: UInt8
     /// Bit flags: see `VehiclePose.Flag`.
     var flags: UInt8
+    /// 0…1: fades going into / coming out of a garage.
+    var visibility: Float = 1
 
     enum Flag {
         static let braking: UInt8 = 1
@@ -80,7 +82,11 @@ struct StaticGeometry {
     var junctions: [JunctionRenderData]
     var roundabouts: [RoundaboutRenderData]
     var buildings: [BuildingSprite]
+    /// Paved driveway outlines (a few simple polygons per building).
+    var driveways: [[Vector2]]
     var terrain: Terrain
+    /// The countryside around the map (scenery).
+    var outskirts: Outskirts
     var bounds: (min: Vector2, max: Vector2)
 }
 
@@ -182,6 +188,7 @@ final class SnapshotBuffer {
                 if dh > .pi { dh -= 2 * .pi }
                 if dh < -.pi { dh += 2 * .pi }
                 w.heading = p.heading + dh * alpha
+                w.visibility = p.visibility + (v.visibility - p.visibility) * alpha
                 out.append(w)
             } else {
                 out.append(v)

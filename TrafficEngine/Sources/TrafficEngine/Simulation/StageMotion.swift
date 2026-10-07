@@ -61,11 +61,11 @@ extension Simulation {
                 } else {
                     targets[i] = -min(v.speed / dt, 2.5)
                 }
-            case .waitingToEnter, .finished: targets[i] = 0
+            case .waitingToEnter, .onDriveway, .finished: targets[i] = 0
             }
         }
         for i in 0..<count {
-            guard vehicles[i].mode != .finished, vehicles[i].mode != .waitingToEnter else { continue }
+            guard vehicles[i].mode != .finished, vehicles[i].mode != .waitingToEnter, vehicles[i].mode != .onDriveway else { continue }
             integrate(i, target: targets[i], dt: dt)
         }
     }

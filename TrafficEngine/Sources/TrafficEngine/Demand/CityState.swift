@@ -144,7 +144,7 @@ extension Simulation {
         for i in vehicles.indices where vehicles[i].destination.building == id && vehicles[i].mode != .finished {
             let seed = UInt64(vehicles[i].id.raw)
             guard case .edge(let e) = vehicles[i].track, vehicles[i].mode == .driving else {
-                if vehicles[i].mode == .pullingIn || vehicles[i].mode == .waitingToEnter { vehicles[i].mode = .finished }
+                if vehicles[i].mode == .pullingIn || vehicles[i].mode == .waitingToEnter || vehicles[i].mode == .onDriveway { vehicles[i].mode = .finished }
                 else { vehicles[i].destination.building = nil; vehicles[i].destination.kind = .exitMap }
                 continue
             }
@@ -290,7 +290,8 @@ extension Simulation {
         var spawnedHere: [(EdgeID, Double)] = []
         for k in city.buildingSlots.indices {
             // Cheap checks first, without copying the building.
-            if city.buildingSlots[k]?.departureQueue.isEmpty ?? true || city.buildingSlots[k]?.drivewayVehicle != nil { continue }
+            if city.buildingSlots[k]?.departureQueue.isEmpty ?? true { continue }
+            if city.buildingSlots[k]?.drivewayVehicle != nil, drivewayHolder(BuildingID(k)) != nil { continue }
             guard let b = city.buildingSlots[k], b.drivewayVehicle == nil, let pid = b.departureQueue.first,
                   let access = b.access else { continue }
             // Neighbouring driveways (a second row of houses shares the frontage):
@@ -311,17 +312,14 @@ extension Simulation {
             }
             let p = city.people[pid.raw]
             guard let id = addVehicle(cls: p.car, edge: access.edge, lane: access.lane, s: access.s, speed: 0,
-                                      route: route, destination: destination, purpose: trip.purpose, mode: .waitingToEnter) else { continue }
+                                      route: route, destination: destination, purpose: trip.purpose, mode: .onDriveway) else { continue }
             if let i = index(of: id) {
-                // Parked inside the lot, a few metres behind the driveway mouth.
-                let laneLat = network.edge(access.edge)?.lane(access.lane)?.lateral ?? 0
-                let outward: Double = access.drivewayLateral >= laneLat ? 1 : -1
-                vehicles[i].lateral = access.drivewayLateral + outward * 3.5
+                // At the front of the building, about to drive down the driveway.
                 vehicles[i].person = pid
                 vehicles[i].origin = b.id
                 vehicles[i].destinationLane = destLane
                 vehicles[i].viaRegion = viaRegion
-                updatePose(&vehicles[i])
+                startLeaving(i, from: b)
                 kerbside.append(i)
             }
             city.people[pid.raw].vehicle = id
@@ -431,9 +429,24 @@ extension Simulation {
             case .waitingToEnter:
                 vehicles[i].modeTimer += dt
                 if drivewayGapOK(i) { vehicles[i].mode = .pullingOut; vehicles[i].modeTimer = 0 }
+            case .onDriveway:
+                let stopped = rollAlongDriveway(i, dt: dt)
+                guard stopped, let run = vehicles[i].driveway else { continue }
+                if run.inbound {
+                    // Up at the building: parked.
+                    if let b = vehicles[i].destination.building, city.buildingSlots[b.raw]?.drivewayVehicle == vehicles[i].id {
+                        city.buildingSlots[b.raw]?.drivewayVehicle = nil
+                    }
+                    finishTrip(i)
+                } else {
+                    // At the mouth: wait for a gap in the kerb lane.
+                    vehicles[i].modeTimer += dt
+                    if drivewayGapOK(i) { joinKerbFromDriveway(i) }
+                }
             case .pullingOut:
                 guard case .edge(let e) = vehicles[i].track, let lane = network.edge(e)?.lane(vehicles[i].lane) else { continue }
-                let rate = max(0.45 * vehicles[i].speed, 0.6) * dt
+                // Sideways only as the car rolls forward (it steers, it doesn't slide).
+                let rate = max(0.45 * vehicles[i].speed, 0.6 * min(vehicles[i].speed, 1)) * dt
                 let d = lane.lateral - vehicles[i].lateral
                 vehicles[i].lateral += d.clamped(to: -rate...rate)
                 vehicles[i].lateralSpeed = d.clamped(to: -rate...rate) / dt
@@ -447,9 +460,20 @@ extension Simulation {
                 let v = vehicles[i]
                 guard v.isOnFinalEdge, v.destination.kind == .building, case .edge(let e) = v.track, e == v.destination.edge,
                       v.laneChange == nil, v.lane == (v.destinationLane ?? v.lane),
-                      v.s >= v.destination.s - 5, v.s <= v.destination.s + 6, v.speed < 7 else { continue }
+                      v.s >= v.destination.s - 10, v.s <= v.destination.s + 6, v.speed < 7 else { continue }
                 // Wait for a car pulling out of / into a driveway right here.
                 if drivewayBusy(i) || drivewayBlockedByParkedCar(i) { continue }
+                // Turn off along the driveway (the building's own, when it has one free).
+                // Turn off along the driveway a few metres short of it, curving
+                // up to the building; too late for that, the old way (a short
+                // sidestep onto the verge).
+                if v.s <= v.destination.s - 1.5 {
+                    guard let b = v.destination.building.flatMap({ city.building($0) }), b.access != nil,
+                          v.speed <= 5.5, drivewayHolder(b.id) == nil, arrivalPath(i, at: b) != nil else { continue }
+                    startArriving(i, at: b)
+                    continue
+                }
+                if v.s < v.destination.s - 5 { continue }
                 vehicles[i].mode = .pullingIn
                 kerbside.append(i)
                 vehicles[i].modeTimer = 0
@@ -474,8 +498,14 @@ extension Simulation {
     func drivewayBusy(_ i: Int) -> Bool {
         let v = vehicles[i]
         return kerbside.contains { j in
-            j != i && j < vehicles.count && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn)
-                && vehicles[j].track == v.track && abs(vehicles[j].s - v.destination.s) < 14
+            j != i && j < vehicles.count && vehicles[j].track == v.track && abs(vehicles[j].s - v.destination.s) < 14
+                && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn
+                    // On a driveway: one turning in, one leaving the very
+                    // driveway we want, or one still coming down the driveway
+                    // next door (once it waits at its mouth, it waits for us).
+                    || (vehicles[j].mode == .onDriveway
+                        && (vehicles[j].driveway?.inbound == true || vehicles[j].origin == v.destination.building
+                            || vehicles[j].driveway.map { $0.path.length - $0.s > 0.05 } == true)))
         }
     }
 
@@ -499,10 +529,14 @@ extension Simulation {
         for l in edge.lanes where abs(l.lateral - (edge.lane(v.lane)?.lateral ?? 0)) < 0.1 || l.index == v.lane {
             for o in laneOcc[laneKey(e, l.index)] {
                 let w = vehicles[Int(o.index)]
+                // A car stopped behind, waiting to turn into this driveway, waits for us.
+                if w.mode == .driving, w.speed < 0.5, w.isOnFinalEdge, w.destination.kind == .building,
+                   w.destination.edge == e, abs(w.destination.s - v.s) < 14, o.s < v.s - v.length - 1 { continue }
                 let ahead = o.s - w.length - v.s           // gap to a vehicle ahead
                 let behind = v.s - v.length - o.s          // gap from a vehicle behind
                 if ahead > -v.length - 1 && ahead < 8 { return false }
-                if behind > -2 && behind < 10 + w.speed * 5 { return false }
+                // A stationary queue behind lets a car out in front of it.
+                if behind > -2 && behind < (w.speed < 0.5 ? 2.5 : 10 + w.speed * 5) { return false }
                 if o.s > v.s - v.length - 2 && o.s - w.length < v.s + 2 { return false }
             }
         }
@@ -536,7 +570,8 @@ extension Simulation {
             if vehicles[j].s > v.s - v.length - 3 && vehicles[j].s - vehicles[j].length < v.s + 18 { return false }
         }
         // Other cars pulling out of or into driveways next door.
-        for j in kerbside where j != i && j < vehicles.count && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn) {
+        for j in kerbside where j != i && j < vehicles.count && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn
+                                                                 || (vehicles[j].mode == .onDriveway && vehicles[j].driveway?.inbound == true)) {
             if case .edge(let ej) = vehicles[j].track, ej == e, abs(vehicles[j].s - v.s) < 14 { return false }
         }
         return true

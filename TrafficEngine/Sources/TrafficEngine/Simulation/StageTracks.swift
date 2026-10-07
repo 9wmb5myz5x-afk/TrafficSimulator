@@ -11,7 +11,7 @@ extension Simulation {
 
     func advanceTracks() {
         for i in vehicles.indices {
-            guard vehicles[i].mode != .finished, vehicles[i].mode != .waitingToEnter else { continue }
+            guard vehicles[i].mode != .finished, vehicles[i].mode != .waitingToEnter, vehicles[i].mode != .onDriveway else { continue }
             var guardCount = 0
             while guardCount < 3 {
                 guardCount += 1
@@ -181,6 +181,7 @@ extension Simulation {
 
     func updatePose(_ v: inout Vehicle) {
         if v.mode == .waitingToEnter { return }
+        if v.mode == .onDriveway, let run = v.driveway { drivewayPose(&v, run); return }
         let front = position(on: v.track, s: v.s, lateral: v.lateral)
         let rearS = v.s - v.length
         var rear: Vector2
@@ -275,6 +276,15 @@ extension Simulation {
             if v.mode == .finished { continue }
             if !changed.isEmpty, v.mode != .waitingToEnter, v.mode != .driving || v.pullOverShift != 0, runOver(v) {
                 v.mode = .finished; vehicles[i] = v; continue
+            }
+            if v.mode == .onDriveway {
+                // On a driveway: it stays only if that driveway is where it was.
+                let b = (v.driveway?.inbound ?? false) ? v.destination.building : v.origin
+                let acc = b.flatMap { city.building($0)?.access }
+                let same = acc.map { $0.edge == v.currentEdge && unchanged($0.edge) } ?? false
+                if !same { v.mode = .finished }
+                vehicles[i] = v
+                continue
             }
             if v.mode == .waitingToEnter || v.mode == .pullingOut {
                 // Still in (or leaving) the driveway: it must be the same driveway.

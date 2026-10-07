@@ -26,6 +26,18 @@ final class ScreenshotTests: XCTestCase {
         return app
     }
 
+    /// Cars on their driveways in the suburb at rush hour, and the
+    /// countryside where the regional road leaves the map.
+    func testDrivewaysAndCountryside() {
+        var app = open("suburb", ["-startHour", "7.6", "-camera", "-110,-45,0.09"])
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        Screenshot.capture(app, named: "driveways")
+        app.terminate()
+        app = open("suburb", ["-startHour", "7.6", "-camera", "760,10,1.1"])
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        Screenshot.capture(app, named: "countryside")
+    }
+
     /// Portrait: every control on screen, and the traffic dial.
     func testPortraitLayoutAndTrafficDial() {
         XCUIDevice.shared.orientation = .portrait

@@ -475,7 +475,10 @@ final class GameController: ObservableObject {
         buffer.pushGeometry(StaticGeometry(networkVersion: net.version, cityVersion: sim.city.version,
                                            roads: all.roads, junctions: all.junctions,
                                            roundabouts: RenderGeometryBuilder.roundabouts(net),
-                                           buildings: buildings, terrain: sim.terrain, bounds: (lo, hi)))
+                                           buildings: buildings,
+                                           driveways: sim.city.buildings.flatMap { sim.drivewaySurfaces(for: $0) },
+                                           terrain: sim.terrain, outskirts: sim.outskirts(margin: 1100),
+                                           bounds: (lo, hi)))
     }
 
     private func makeOverlay() -> OverlayData? {
@@ -519,7 +522,8 @@ final class GameController: ObservableObject {
             if v.mode == .parkedAtKerb { flags |= VehiclePose.Flag.parked }
             poses.append(VehiclePose(id: Int32(v.id.raw), x: Float(v.center.x), y: Float(v.center.y),
                                      heading: Float(v.heading), length: Float(v.length), width: Float(v.width),
-                                     cls: v.cls, color: UInt8(v.colorIndex & 0xff), flags: flags))
+                                     cls: v.cls, color: UInt8(v.colorIndex & 0xff), flags: flags,
+                                     visibility: Float(v.visibility)))
         }
         var heads: [SignalHead] = []
         for n in sim.network.allNodes where n.effectiveControl == .signal {

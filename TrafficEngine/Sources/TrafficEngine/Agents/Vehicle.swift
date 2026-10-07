@@ -38,8 +38,11 @@ public struct LaneChange: Codable, Sendable, Equatable {
 }
 
 public enum VehicleMode: String, Codable, Sendable {
-    /// Waiting in a driveway / lot for a gap to pull out.
+    /// Waiting in a driveway / lot for a gap to pull out (older saves; cars
+    /// now wait in view at the end of the driveway, `onDriveway`).
     case waitingToEnter
+    /// Driving along a building's driveway (`Vehicle.driveway`), leaving or arriving.
+    case onDriveway
     /// Pulling out of a driveway into the kerb lane.
     case pullingOut
     case driving
@@ -130,6 +133,8 @@ public struct Vehicle: Codable, Sendable, Identifiable {
     public var purpose: TripPurpose
     public var person: PersonID?
     public var origin: BuildingID?
+    /// The driveway being driven along (`onDriveway`).
+    public var driveway: DrivewayRun? = nil
     /// Leaving the map only to turn round beyond it and drive back in (the
     /// building it is heading for can't be reached from inside the map).
     public var viaRegion: Bool = false
@@ -194,10 +199,13 @@ public struct Vehicle: Codable, Sendable, Identifiable {
     public func blinker(side: DrivingSide) -> Int {
         if hazard { return 2 }
         guard let lc = laneChange, !lc.aborted else {
-            if mode == .pullingIn || mode == .parkedAtKerb || pullOverShift > 0.3 {
+            if mode == .pullingIn || mode == .parkedAtKerb || pullOverShift > 0.3
+                || (mode == .onDriveway && driveway?.inbound == true && (driveway?.s ?? 0) < length + 8) {
                 return side == .right ? 1 : -1
             }
-            if mode == .pullingOut || mode == .waitingToEnter { return side == .right ? -1 : 1 }
+            if mode == .pullingOut || mode == .waitingToEnter || (mode == .onDriveway && driveway?.inbound == false) {
+                return side == .right ? -1 : 1
+            }
             return 0
         }
         return lc.toLateral > lc.fromLateral ? -1 : 1

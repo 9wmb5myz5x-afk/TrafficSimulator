@@ -56,6 +56,21 @@ final class CityScene: SKScene {
     private var cityVersion = -1
     var worldBounds: (min: Vector2, max: Vector2) = (Vector2(-200, -200), Vector2(200, 200))
     private var vehicleNodes: [Int32: VehicleNode] = [:]
+    private var lastVehicleTime: CFTimeInterval = 0
+    /// Scenery cars on the roads beyond the map.
+    private struct Ghost {
+        let node: SKSpriteNode
+        let road: Int
+        var s: Double
+        let lateral: Double
+        let speed: Double
+        let inbound: Bool
+    }
+    private var ghosts: [Ghost] = []
+    private var countryRoads: [Outskirts.Road] = []
+    /// Per country road: when cars recently came in from it (wall time), and when the next scenery car sets off.
+    private var arrivals: [[CFTimeInterval]] = []
+    private var nextInbound: [CFTimeInterval] = []
     private var signalNodes: [SKSpriteNode] = []
     private var markerNodes: [SKSpriteNode] = []
     private var roadFills: [Int: [SKShapeNode]] = [:]        // road raw id → fill shapes (for overlays)
@@ -163,6 +178,7 @@ final class CityScene: SKScene {
         overlayShapes.removeAll()
         roadFills.removeAll()
         let p = phase
+        drawCountryside(g.outskirts, phase: p)
         // Terrain.
         for f in g.terrain.features {
             switch f.kind {
@@ -241,13 +257,160 @@ final class CityScene: SKScene {
 
     private func withZ(_ n: SKNode, _ z: CGFloat) -> SKNode { n.zPosition = z; return n }
 
+    // MARK: - Countryside
+
+    /// Fields, woods and farms around the map, and the regional roads
+    /// carrying on beyond its edge.
+    private func drawCountryside(_ o: Outskirts, phase p: Double) {
+        for g in ghosts { g.node.removeFromParent() }
+        ghosts.removeAll()
+        countryRoads = o.roads
+        arrivals = Array(repeating: [], count: o.roads.count)
+        nextInbound = Array(repeating: 0, count: o.roads.count)
+        // One compound shape per kind of field.
+        for kind in Outskirts.FieldKind.allCases {
+            let path = CGMutablePath()
+            for f in o.fields where f.kind == kind {
+                path.addLines(between: f.polygon.map { cg($0) })
+                path.closeSubpath()
+            }
+            let n = SKShapeNode(path: path)
+            switch kind {
+            case .pasture: n.fillColor = Theme.ui(.park, phase: p).withAlphaComponent(0.55)
+            case .crop: n.fillColor = Theme.ui(.beach, phase: p).withAlphaComponent(0.85)
+            case .stubble: n.fillColor = Theme.ui(.roadEdge, phase: p).withAlphaComponent(0.2)
+            case .wood: n.fillColor = Theme.ui(.park, phase: p)
+            }
+            n.strokeColor = Theme.ui(.parkTree, phase: p).withAlphaComponent(0.35)
+            n.lineWidth = 1.2
+            n.zPosition = -1
+            terrainLayer.addChild(n)
+        }
+        for f in o.fields where f.kind == .wood { addTrees(in: f.polygon, density: 1 / 700, cap: 24) }
+        // Roads, drawn like the town's (edge, surface, centre line).
+        let edge = Theme.ui(.roadEdge, phase: p), fill = Theme.ui(.road, phase: p)
+        for r in o.roads {
+            let path = CGMutablePath()
+            path.addLines(between: r.line.points.map { cg($0) })
+            func stroke(_ color: UIColor, _ width: Double, layer: SKNode, dashed: Bool = false) {
+                let n = SKShapeNode(path: dashed ? path.copy(dashingWithPhase: 0, lengths: [3, 6]) : path)
+                n.strokeColor = color
+                n.lineWidth = CGFloat(width)
+                n.lineCap = .butt
+                n.lineJoin = .round
+                n.fillColor = .clear
+                layer.addChild(n)
+            }
+            stroke(edge, 2 * r.halfWidth + 1.2, layer: roadEdgeLayer)
+            stroke(fill, 2 * r.halfWidth, layer: roadFillLayer)
+            if r.isHighway {
+                stroke(Theme.ui(.median, phase: p), 1.6, layer: markingLayer)
+            } else {
+                stroke(Theme.ui(.centerLine, phase: p), 0.3, layer: markingLayer)
+            }
+            for k in 1..<max(r.lanesEachWay, 1) {
+                let lat = Double(k) * 3.5 + (r.isHighway ? 0.8 : 0)
+                for side in [1.0, -1.0] {
+                    let lane = CGMutablePath()
+                    lane.addLines(between: r.line.offset(by: side * lat).points.map { cg($0) })
+                    let n = SKShapeNode(path: lane.copy(dashingWithPhase: 0, lengths: [3, 6]))
+                    n.strokeColor = Theme.ui(.laneMarking, phase: p)
+                    n.lineWidth = 0.25
+                    markingLayer.addChild(n)
+                }
+            }
+        }
+        // Farmsteads.
+        for f in o.farms {
+            let roof = SKSpriteNode(texture: Textures.roof(.house))
+            roof.size = CGSize(width: f.width, height: f.depth)
+            roof.position = cg(f.center)
+            roof.zRotation = CGFloat(f.rotation - .pi / 2)
+            roof.zPosition = 5
+            terrainLayer.addChild(roof)
+        }
+    }
+
+    /// The country road a car at `p` is on, its arc length and lateral offset there.
+    private func countryRoad(at p: CGPoint, reach: Double) -> (index: Int, s: Double, lateral: Double)? {
+        let w = Vector2(Double(p.x), Double(p.y))
+        for (k, r) in countryRoads.enumerated() where r.line.start.distance(to: w) < reach + 60 {
+            let pr = r.line.project(w)
+            if pr.distance < r.halfWidth + reach { return (k, pr.s, pr.lateral) }
+        }
+        return nil
+    }
+
+    /// A car that has just left the map at a regional connection carries on
+    /// along the road beyond. Returns false if it didn't leave that way.
+    private func driveOff(_ body: SKSpriteNode, velocity: CGVector) -> Bool {
+        guard let (k, s, lat) = countryRoad(at: body.position, reach: 12) else { return false }
+        let r = countryRoads[k]
+        let speed = Double(hypot(velocity.dx, velocity.dy))
+        let dir = r.line.tangent(at: s)
+        guard speed > 1, (Double(velocity.dx) * dir.x + Double(velocity.dy) * dir.y) / speed > 0.5 else { return false }
+        ghosts.append(Ghost(node: body, road: k, s: s, lateral: lat, speed: speed, inbound: false))
+        return true
+    }
+
+    /// A car appeared: if it came in from a country road, remember (sets the
+    /// rate of scenery traffic heading into town on that road).
+    private func noteArrival(at p: CGPoint, time: CFTimeInterval) {
+        guard let (k, s, _) = countryRoad(at: p, reach: 8), s < 30 else { return }
+        arrivals[k].append(time)
+    }
+
+    private func updateGhosts(dt: Double, time: CFTimeInterval) {
+        // Scenery cars heading into town at the rate cars have been arriving.
+        let running = !(controller?.isPaused ?? true)
+        let simSpeed = controller?.speed ?? 1
+        if running, !countryRoads.isEmpty {
+            for k in countryRoads.indices {
+                arrivals[k].removeAll { time - $0 > 90 }
+                guard !arrivals[k].isEmpty else { continue }
+                if nextInbound[k] == 0 { nextInbound[k] = time + Double.random(in: 0...8) }
+                guard time >= nextInbound[k] else { continue }
+                let rate = Double(arrivals[k].count) / 90
+                nextInbound[k] = time + min(30, max(0.6, -log(Double.random(in: 0.05...1)) / rate))
+                let r = countryRoads[k]
+                let side = controller?.setup.side ?? .right
+                let lat = (r.halfWidth - (r.isHighway ? 2.6 : 1.8)) * (side == .right ? 1 : -1) * 0.75
+                let body = SKSpriteNode(texture: Textures.vehicle(.car))
+                body.size = CGSize(width: 4.5, height: 1.85)
+                body.color = RGB(Theme.vehicleBodies[Int.random(in: 0..<Theme.vehicleBodies.count)]).ui
+                body.colorBlendFactor = 1
+                body.alpha = 0
+                vehicleLayer.addChild(body)
+                let speed = (r.isHighway ? 29.0 : 22.0) * simSpeed * Double.random(in: 0.85...1.1)
+                ghosts.append(Ghost(node: body, road: k, s: min(r.line.length, 1100), lateral: lat, speed: speed, inbound: true))
+            }
+        }
+        guard dt > 0 else { return }
+        var keep: [Ghost] = []
+        for var g in ghosts {
+            let r = countryRoads[g.road]
+            if running { g.s += (g.inbound ? -1 : 1) * g.speed * dt }
+            let done = g.inbound ? g.s <= 2 : g.s >= min(r.line.length, 1100)
+            if done || g.s < 0 { g.node.removeFromParent(); continue }
+            let pos = r.line.position(at: g.s, lateral: g.lateral)
+            let t = r.line.tangent(at: g.s)
+            g.node.position = cg(pos)
+            g.node.zRotation = CGFloat((g.inbound ? -t : t).angle)
+            // Fade with distance from town; an incoming car fades out as it reaches the edge.
+            let far = (1 - (g.s - 600) / 500).clamped(to: 0...1)
+            g.node.alpha = CGFloat(g.inbound ? min(far, ((g.s - 2) / 25).clamped(to: 0...1)) : far)
+            keep.append(g)
+        }
+        ghosts = keep
+    }
+
     /// Round trees scattered deterministically inside a park.
-    private func addTrees(in polygon: [Vector2]) {
+    private func addTrees(in polygon: [Vector2], density: Double = 1 / 260, cap: Int = 400) {
         let xs = polygon.map { $0.x }, ys = polygon.map { $0.y }
         guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return }
-        var k: UInt64 = 0x9E3779B97F4A7C15
+        var k: UInt64 = 0x9E3779B97F4A7C15 ^ UInt64(bitPattern: Int64(x0 * 31 + y0 * 17))
         func rnd() -> Double { k ^= k << 13; k ^= k >> 7; k ^= k << 17; return Double(k % 10_000) / 10_000 }
-        let count = Int(((x1 - x0) * (y1 - y0) / 260).clamped(to: 3...400))
+        let count = Int(((x1 - x0) * (y1 - y0) * density).clamped(to: 3...Double(cap)))
         for _ in 0..<count {
             let p = Vector2(x0 + rnd() * (x1 - x0), y0 + rnd() * (y1 - y0))
             guard Geometry.pointInPolygon(p, polygon) else { continue }
@@ -310,6 +473,16 @@ final class CityScene: SKScene {
         let previous = Set(buildingLayer.children.compactMap { $0.userData?["id"] as? Int })
         shadowLayer.removeAllChildren()
         buildingLayer.removeAllChildren()
+        // Driveways: paved like the road, under the buildings' shadows.
+        let paving = Theme.ui(.road, phase: phase), kerb = Theme.ui(.roadEdge, phase: phase)
+        for d in g.driveways {
+            let n = shape(d, fill: paving)
+            n.zPosition = -2
+            let edge = shape(d, fill: nil, stroke: kerb, width: 0.5)
+            edge.zPosition = -3
+            shadowLayer.addChild(edge)
+            shadowLayer.addChild(n)
+        }
         for b in g.buildings {
             let f = Vector2.unit(angle: b.rotation), r = f.perpendicular
             let hw = b.width / 2, hd = b.depth / 2
@@ -352,6 +525,9 @@ final class CityScene: SKScene {
         var blinkR: [SKSpriteNode] = []
         var bar: [SKSpriteNode] = []
         var headlights: SKSpriteNode?
+        /// Recent velocity [points per wall second], for cars driving off the map.
+        var velocity = CGVector.zero
+        var lastPosition: CGPoint?
         init(body: SKSpriteNode) { self.body = body }
     }
 
@@ -421,12 +597,26 @@ final class CityScene: SKScene {
         let blinkOn = Int(time * 2.6) % 2 == 0
         let flash = Int(time * 6) % 2 == 0
         let night = phase > 1.0
+        let dt = lastVehicleTime == 0 ? 0 : min(time - lastVehicleTime, 0.1)
+        lastVehicleTime = time
         for p in poses {
             live.insert(p.id)
-            let node = vehicleNodes[p.id] ?? { let n = makeVehicle(p); vehicleNodes[p.id] = n; return n }()
             let pos = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
+            let node = vehicleNodes[p.id] ?? {
+                let n = makeVehicle(p)
+                vehicleNodes[p.id] = n
+                noteArrival(at: pos, time: time)
+                return n
+            }()
+            if let last = node.lastPosition, dt > 0 {
+                let k = CGFloat(min(dt * 4, 1))
+                node.velocity = CGVector(dx: node.velocity.dx + ((pos.x - last.x) / CGFloat(dt) - node.velocity.dx) * k,
+                                         dy: node.velocity.dy + ((pos.y - last.y) / CGFloat(dt) - node.velocity.dy) * k)
+            }
+            node.lastPosition = pos
             node.body.position = pos
             node.body.zRotation = CGFloat(p.heading)
+            node.body.alpha = CGFloat(p.visibility)
             let braking = p.flags & VehiclePose.Flag.braking != 0
             let hazard = p.flags & VehiclePose.Flag.hazard != 0
             for b in node.brake { b.isHidden = !(braking || night) ; b.alpha = braking ? 1 : 0.45 }
@@ -440,7 +630,7 @@ final class CityScene: SKScene {
                 node.bar[1].isHidden = !(siren && !flash)
             }
             if let hl = node.headlights {
-                hl.isHidden = !night || p.flags & VehiclePose.Flag.parked != 0
+                hl.isHidden = !night || p.flags & VehiclePose.Flag.parked != 0 || p.visibility < 0.6
                 if !hl.isHidden {
                     let h = CGFloat(p.heading)
                     hl.position = CGPoint(x: pos.x + cos(h) * (CGFloat(p.length) / 2 + 3.5), y: pos.y + sin(h) * (CGFloat(p.length) / 2 + 3.5))
@@ -449,10 +639,12 @@ final class CityScene: SKScene {
             }
         }
         for (id, node) in vehicleNodes where !live.contains(id) {
-            node.body.removeFromParent()
             node.headlights?.removeFromParent()
+            // Leaving the map: it drives on into the countryside.
+            if !driveOff(node.body, velocity: node.velocity) { node.body.removeFromParent() }
             vehicleNodes[id] = nil
         }
+        updateGhosts(dt: dt, time: time)
     }
 
     private func updateSignals(_ heads: [SignalHead]) {

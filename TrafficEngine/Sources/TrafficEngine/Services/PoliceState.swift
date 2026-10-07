@@ -310,17 +310,14 @@ extension Simulation {
 
     /// Put a unit's car in its station's driveway.
     private func deployUnit(_ u: inout PoliceUnit) -> VehicleID? {
-        guard let b = city.building(u.station), let access = b.access, b.drivewayVehicle == nil else { return nil }
+        guard let b = city.building(u.station), let access = b.access, drivewayHolder(b.id) == nil else { return nil }
         guard let id = addVehicle(cls: .police, driver: policeDriver(), edge: access.edge, lane: access.lane, s: access.s,
                                   speed: 0, route: [access.edge],
                                   destination: Destination(kind: .kerb, edge: access.edge, s: max((network.edge(access.edge)?.length ?? 0) - 12, access.s)),
-                                  purpose: .patrol, mode: .waitingToEnter),
+                                  purpose: .patrol, mode: .onDriveway),
               let i = index(of: id) else { return nil }
-        let laneLat = network.edge(access.edge)?.lane(access.lane)?.lateral ?? 0
-        let outward: Double = access.drivewayLateral >= laneLat ? 1 : -1
-        vehicles[i].lateral = access.drivewayLateral + outward * 3.5
         vehicles[i].origin = b.id
-        updatePose(&vehicles[i])
+        startLeaving(i, from: b)
         kerbside.append(i)
         city.buildingSlots[b.id.raw]?.drivewayVehicle = id
         if u.incident == nil { newPatrolLeg(i) }

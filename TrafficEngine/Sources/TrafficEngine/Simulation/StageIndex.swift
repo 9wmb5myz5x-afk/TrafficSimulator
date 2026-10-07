@@ -27,10 +27,21 @@ extension Simulation {
         for i in vehicles.indices {
             let v = vehicles[i]
             switch v.mode {
-            case .parkedAtKerb, .pullingIn, .pullingOut, .waitingToEnter: kerbside.append(i)
+            case .parkedAtKerb, .pullingIn, .pullingOut, .waitingToEnter, .onDriveway: kerbside.append(i)
             default: break
             }
             if v.mode == .finished || v.mode == .waitingToEnter { continue }
+            if v.mode == .onDriveway {
+                // A car turning in stays in its lane (to the cars behind it)
+                // until its rear is clear of the lane.
+                guard let run = v.driveway, run.inbound, case .edge(let e) = v.track,
+                      let edge = network.edge(e), let lane = edge.lane(v.lane) else { continue }
+                let rear = run.path.extendedPoint(at: run.s - v.length)
+                if abs(edge.reference.project(rear).lateral - lane.lateral) < lane.width * 0.5 + v.width * 0.5 + 0.6 {
+                    laneOcc[laneKey(e, v.lane)].append(Occupant(s: v.s, index: Int32(i)))
+                }
+                continue
+            }
             let idx = Int32(i)
             if v.siren { sirenSources.append(i) }
             switch v.track {

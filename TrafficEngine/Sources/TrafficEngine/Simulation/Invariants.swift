@@ -97,9 +97,9 @@ public final class InvariantChecker {
                 let disp = p.front.distance(to: v.front)
                 let vmax = max(p.speed, v.speed)
                 let allowed = vmax * dt * 1.35 + 0.15
-                if disp > allowed { record(.teleport, t, "\(v.id) moved \(disp) m in \(dt) s at \(vmax) m/s on \(v.track)") }
+                if disp > allowed { record(.teleport, t, "\(v.id) moved \(disp) m in \(dt) s at \(vmax) m/s on \(v.track) (\(v.mode.rawValue))") }
                 let dh = abs(DMath.angleDifference(p.heading, v.heading))
-                if dh > disp * 0.6 + 0.1 { record(.heading, t, "\(v.id) heading jumped \(dh) rad over \(disp) m on \(v.track)") }
+                if dh > disp * 0.6 + 0.1 { record(.heading, t, "\(v.id) heading jumped \(dh) rad over \(disp) m on \(v.track) (\(v.mode.rawValue))") }
             }
             next[v.id.raw] = (v.front, v.heading, v.speed)
             // Off-road.
@@ -107,7 +107,7 @@ public final class InvariantChecker {
                 let lats = edge.lanes.map { $0.lateral }
                 let lo = (lats.min() ?? 0) - edge.laneWidth / 2 - edge.roadClass.shoulderWidth - 0.6
                 let hi = (lats.max() ?? 0) + edge.laneWidth / 2 + edge.roadClass.shoulderWidth + 0.6
-                let driveway = v.mode == .pullingIn || v.mode == .pullingOut || v.mode == .parkedAtKerb
+                let driveway = v.mode == .pullingIn || v.mode == .pullingOut || v.mode == .parkedAtKerb || v.mode == .onDriveway
                 if !driveway && (v.lateral < lo || v.lateral > hi) {
                     record(.offRoad, t, "\(v.id) lateral \(v.lateral) outside [\(lo), \(hi)] on \(e)")
                 }

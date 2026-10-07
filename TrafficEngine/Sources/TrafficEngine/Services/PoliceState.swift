@@ -311,6 +311,10 @@ extension Simulation {
     /// Put a unit's car in its station's driveway.
     private func deployUnit(_ u: inout PoliceUnit) -> VehicleID? {
         guard let b = city.building(u.station), let access = b.access, drivewayHolder(b.id) == nil else { return nil }
+        // Not while another car is at or near the mouth (a neighbour sharing the frontage).
+        if kerbside.contains(where: { $0 < vehicles.count && vehicles[$0].track == .edge(access.edge) && abs(vehicles[$0].s - access.s) < 7 }) {
+            return nil
+        }
         guard let id = addVehicle(cls: .police, driver: policeDriver(), edge: access.edge, lane: access.lane, s: access.s,
                                   speed: 0, route: [access.edge],
                                   destination: Destination(kind: .kerb, edge: access.edge, s: max((network.edge(access.edge)?.length ?? 0) - 12, access.s)),

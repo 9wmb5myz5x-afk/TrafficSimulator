@@ -479,7 +479,19 @@ extension Simulation {
     /// Start a new route from the current edge. A commitment to the next
     /// junction stands if the new route leaves it the same way (a re-plan
     /// must not make a car brake hard at the line it was already crossing).
-    func setRoute(_ i: Int, _ path: [EdgeID]) {
+    func setRoute(_ i: Int, _ newPath: [EdgeID]) {
+        var path = newPath
+        let v = vehicles[i]
+        // Already committed through the junction ahead (it holds a reservation
+        // and may be too close to stop): keep that turn, re-plan beyond it.
+        if v.committed, let pc = v.plannedConnector, let conn = network.connector(pc), case .edge(let e) = v.track,
+           conn.from.edge == e, path.count >= 2, path[0] == e, path[1] != conn.toEdge, let goal = path.last {
+            if goal == conn.toEdge {
+                path = [e, goal]
+            } else if let rest = router.route(from: conn.toEdge, to: goal, seed: UInt64(v.id.raw)) {
+                path = [e] + rest
+            }
+        }
         let oldNext = vehicles[i].nextRouteEdge
         vehicles[i].route = path
         vehicles[i].routeIndex = 0

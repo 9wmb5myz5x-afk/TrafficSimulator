@@ -476,8 +476,10 @@ final class GameController: ObservableObject {
                 sim.step()
                 accumulator -= sim.config.dt
                 stepped += 1
-                // Never starve the device: if we fall behind, slow down gracefully.
-                if stepped % 8 == 0 && CACurrentMediaTime() > budgetEnd {
+                // Never starve the device: if we fall behind, slow down
+                // gracefully. Checked every step, so a tap waiting for this
+                // queue waits for one step at most, not eight.
+                if CACurrentMediaTime() > budgetEnd {
                     accumulator = min(accumulator, sim.config.dt * 4)
                     break
                 }

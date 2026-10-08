@@ -114,6 +114,19 @@ Feedback after the first play: zoom and panning felt wrong, the top and bottom c
   - nearly straight drags become straight;
   - highways pass over streets, with raised junctions.
 
+### Round 3 — responsiveness and vehicle design ✅
+Feedback: the app lags and freezes when tapping between items on busy maps; vehicle types are hard to tell apart.
+- [x] **Measured first.** An in-app probe (`-perfProbe`) counts main-thread hitches and how long work waits for the simulation queue. A UI test (`PerformanceTests`) taps through the palette, overlays, sheets, map selection, zoom, pan, drawing, building and undo on Downtown and Stress City and writes a per-action report on every device in CI. An engine test (`PerfProbeTests`) times the work behind taps and map updates against budgets.
+- [x] **Cause.** The warrant review switches a junction's control about 26 times an in-game hour on Stress City. Each switch republished and redrew the whole map (every road, marking, building and driveway shape) on the main thread, and the HUD's four updates a second re-rendered the whole game screen.
+- [x] **Fixes** (D32):
+  - control switches redraw only the junction lines; nothing else is rebuilt;
+  - countryside, road geometry and driveways are cached between updates;
+  - far fewer nodes: markings and road edges merged by style, building shadows and sides as batched sprites;
+  - the overlay recolours only when its data changes;
+  - the HUD and inspector update on their own, not the whole screen;
+  - the simulation checks its time budget every step, so a tap never waits for more than one step.
+- [x] **Vehicles** read by type at a glance: a tinted body plus an untinted detail layer — cars with windscreen, rear window and roof; SUVs with roof rails; vans with a long roof, vent and door seams; trucks with a painted cab and a white ribbed box; buses with window bands and roof units; police in black and white with a light bar. Lamps are one sprite per group. Zoomed out, vehicles are drawn up to 1.6× larger so the shapes stay readable.
+
 ## Verification log
 
 | When | Level | Where | What | Result |

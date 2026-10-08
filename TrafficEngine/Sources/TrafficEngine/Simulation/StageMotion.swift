@@ -223,6 +223,21 @@ extension Simulation {
                     }
                 }
             }
+            // Merging paths (two approaches into one exit lane): follow
+            // whoever is further along towards the end of the shared zone, so
+            // a car accelerating from a green light doesn't run through a
+            // slower turning car beside it.
+            for e in network.conflicts.conflicts(of: cid) where e.kind == .merge {
+                for o in connOcc[e.other.raw] {
+                    let j = Int(o.index)
+                    guard j != i else { continue }
+                    let theirs = e.otherZoneEnd - o.s, mine = e.zoneEnd - v.s
+                    let ahead = theirs < mine - 0.01 || (abs(theirs - mine) <= 0.01 && vehicles[j].id.raw < v.id.raw)
+                    if ahead && mine - theirs < 40 {
+                        consider(gap: mine - theirs - vehicles[j].length, leaderSpeed: vehicles[j].speed)
+                    }
+                }
+            }
             if !found {
                 let rest = conn.length - v.s
                 let exitKey = laneKey(conn.toEdge, conn.to.index)

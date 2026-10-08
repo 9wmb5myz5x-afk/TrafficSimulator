@@ -1,0 +1,17 @@
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    1      2.00    2209  12249           1   4.782  13968  gridlocks=66
+    [stuck t=7166.1] V12077 stationary 300 s on edge(E279) s=78
+stressCity right    2      2.00    2165  12380           0   6.308  14378  gridlocks=80
+stressCity left    1      2.00    2154  12666           0   4.937  13968  gridlocks=50
+stressCity left    2      2.00    2172  12092           0   7.101  14378  gridlocks=162
+SOAK FAIL (1 runs with violations)
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    3      2.00    2218  12849           0   5.387  14294  gridlocks=61
+stressCity right    4      2.00    2031  11627           0   6.201  13938  gridlocks=143
+stressCity left    3      2.00    2133  12898           0   4.317  14294  gridlocks=78
+stressCity left    4      2.00    2008  12448           0   5.902  13938  gridlocks=65
+SOAK PASS
+scenario           side   seed  simHours  maxVeh  trips  violations  stepms  pop
+stressCity right    5      2.00    2101  11988           0   5.284  13912  gridlocks=136
+stressCity left    5      2.00    2079  12704           0   5.524  13912  gridlocks=81
+SOAK PASS

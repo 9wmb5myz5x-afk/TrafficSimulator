@@ -158,6 +158,11 @@ Feedback: the app lags and freezes when tapping between items on busy maps; vehi
 | 2026-10-07 | 3 | Linux | `trafficsim --soak --hours 2 --seeds 1,2,3,4,5` (7 maps × 2 sides, `0b4aff3`) | **70/70 runs, 0 violations** (`docs/verification/soak-0b4aff3.txt`). Earlier round-2 builds failed here; each failure was a driveway stand-off or a police edge case, fixed in D29 |
 | 2026-10-07 | 3 | Linux | Stress City, 80 min, seeds 1–3 (`da6b3e8`) | 0, 3 and 1 `stuck` reports, all cars in long signal queues on the saturated map; **0 overlaps** (`docs/verification/stress80-da6b3e8.txt`). Before the round-2 fixes the same runs had thousands of overlaps and over 1,000 gridlocks |
 | 2026-10-07 | 4–5 | CI | app build + UI tests on iPhone, iPhone SE, iPad (round 2) | all 4 jobs pass; screenshots reviewed (driveways, countryside, portrait layouts) |
+| 2026-10-08 | perf | CI (`1dafb9d` → `aa0806e`) | responsiveness on Stress City, iPhone 16 Pro simulator: in-app scripted session (palette, overlays, sheets, selection, an edit, a house, undo, speeds) | taps wait ≤ 80 ms for the simulation (baseline: up to 6.5 s); worst frame 438 ms over the session, no hitch over 1 s. Reports `perfscript-*.txt` next to the screenshots |
+| 2026-10-08 | 1–3 | Linux | `swift test -c release` (round 3) | **84 tests, 0 failures**. New: geometry version, perf budgets |
+| 2026-10-08 | 3 | Linux | `trafficsim --soak --hours 2 --seeds 1,2,3,4,5` (7 maps × 2 sides, round 3 final) | **70/70 runs, 0 violations, 0 gridlocks** (`docs/verification/soak-r3.txt`) |
+| 2026-10-08 | 3 | Linux | Stress City soak, 2 h, seeds 1–5 × both sides (round 3 final) | **10 runs, 0 overlaps**; one `stuck` report (a car 300 s in a saturated signal queue). Before round 3 the same runs had 1–332 violations each (`docs/verification/stress-r3.txt`) |
+| 2026-10-08 | 3 | Linux | `trafficsim --fuzz --minutes 30 --seeds 1,2` (7 maps × 2 sides, round 3 final) | **28/28 runs, 0 violations**; 1,253 edits applied, 427 rejected by validation (`docs/verification/fuzz-r3.txt`) |
 
 ## Where each level runs
 - L1–L3: Linux container (local), CI `engine-linux`, CI `app-macos`.

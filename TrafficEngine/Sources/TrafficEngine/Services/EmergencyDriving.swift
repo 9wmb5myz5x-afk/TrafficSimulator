@@ -119,6 +119,14 @@ extension Simulation {
                     let toCentre = abs(lane.lateral) - edge.roadClass.medianWidth / 2 - 0.15 - v.width / 2
                     let nearGoal = v.isOnFinalEdge && v.destination.kind == .kerb && v.destination.s - v.s < 40
                     target = farFromLine && !nearGoal && sirenNeedsCentreSpace(i, edge: e) ? -max(0, min(1.3, toCentre)) : 0
+                    // Easing back towards the kerb: not into a car alongside
+                    // (one part-way out of a driveway, a pulled-over car).
+                    if target > v.pullOverShift {
+                        let step = min(target - v.pullOverShift, rate)
+                        if sideStepBlocked(i, edge: edge, lateral: lane.lateral + kerb * (v.pullOverShift + step)) {
+                            target = v.pullOverShift
+                        }
+                    }
                 } else {
                     v.yieldingToEmergency = yielding[i] && v.purpose != .emergency
                     // Only the kerb lane pulls over (inner lanes would swing into it).
@@ -142,6 +150,24 @@ extension Simulation {
             }
             vehicles[i] = v
         }
+    }
+
+    /// Would vehicle `i`, moved sideways to `lateral`, touch a vehicle beside it?
+    func sideStepBlocked(_ i: Int, edge: Edge, lateral: Double) -> Bool {
+        let v = vehicles[i]
+        var box = v.footprint
+        box.center = edge.position(s: max(v.s - v.length / 2, 0), lateral: lateral)
+        func hits(_ j: Int) -> Bool {
+            guard j != i, j < vehicles.count else { return false }
+            let w = vehicles[j]
+            guard w.mode != .waitingToEnter, w.mode != .finished, w.center.distance(to: box.center) < 12 else { return false }
+            return box.overlaps(w.footprint, margin: 0)
+        }
+        if kerbside.contains(where: hits) { return true }
+        for lane in edge.lanes {
+            for o in laneOcc[laneKey(edge.id, lane.index)] where abs(o.s - v.s) < 12 && hits(Int(o.index)) { return true }
+        }
+        return false
     }
 
     /// A car parked on the shoulder next to vehicle `i` (no room to pull over).

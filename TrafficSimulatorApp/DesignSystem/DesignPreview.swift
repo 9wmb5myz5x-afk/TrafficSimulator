@@ -20,24 +20,30 @@ struct DesignPreview: View {
                     section("Vehicles") {
                         // Each type in three paints: the shape and the detail
                         // layer (glass, roof, cargo box, livery) carry the type.
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(VehicleClass.allCases, id: \.self) { c in
-                                HStack(alignment: .center, spacing: 14) {
-                                    Text(String(describing: c).capitalized)
-                                        .font(.caption.weight(.semibold))
-                                        .frame(width: 52, alignment: .leading)
-                                    ForEach([1, 5, 9], id: \.self) { k in
-                                        vehicle(c, zoom: 9, paint: RGB(Theme.vehicleBodies[k % Theme.vehicleBodies.count]).color)
+                        ScrollView(.horizontal) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(VehicleClass.allCases, id: \.self) { c in
+                                    HStack(alignment: .center, spacing: 14) {
+                                        Text(String(describing: c).capitalized)
+                                            .font(.caption.weight(.semibold))
+                                            .frame(width: 52, alignment: .leading)
+                                        ForEach([1, 5, 9], id: \.self) { k in
+                                            vehicle(c, zoom: 9, paint: RGB(Theme.vehicleBodies[k % Theme.vehicleBodies.count]).color)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     section("Vehicles at map zooms") {
-                        ForEach([3.0, 5.0], id: \.self) { z in
-                            HStack(alignment: .center, spacing: 12) {
-                                ForEach(VehicleClass.allCases, id: \.self) { c in
-                                    vehicle(c, zoom: z, paint: RGB(Theme.vehicleBodies[3]).color)
+                        ScrollView(.horizontal) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach([3.0, 5.0], id: \.self) { z in
+                                    HStack(alignment: .center, spacing: 12) {
+                                        ForEach(VehicleClass.allCases, id: \.self) { c in
+                                            vehicle(c, zoom: z, paint: RGB(Theme.vehicleBodies[3]).color)
+                                        }
+                                    }
                                 }
                             }
                         }

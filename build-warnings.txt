@@ -1,0 +1,3 @@
+/Users/runner/work/TrafficSimulator/TrafficSimulator/TrafficSimulatorApp/Assets.xcassets: warning: Could not get trait set for device iPad17,2-A with version 26.2
+2026-10-08 09:16:00.355 appintentsmetadataprocessor[6260:21436] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+2026-10-08 09:16:08.307 appintentsmetadataprocessor[6475:22001] warning: Metadata extraction skipped. No AppIntents.framework dependency found.

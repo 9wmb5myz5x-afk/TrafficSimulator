@@ -38,7 +38,11 @@ extension Simulation {
                       let edge = network.edge(e), let lane = edge.lane(v.lane) else { continue }
                 let rear = run.path.extendedPoint(at: run.s - v.length)
                 if abs(edge.reference.project(rear).lateral - lane.lateral) < lane.width * 0.5 + v.width * 0.5 + 0.6 {
-                    laneOcc[laneKey(e, v.lane)].append(Occupant(s: v.s, index: Int32(i)))
+                    // Where its front bumper actually is along the road (it has
+                    // driven on up the driveway since leaving the lane at `v.s`),
+                    // so a car changing into the lane sees it alongside.
+                    let front = edge.reference.project(run.path.extendedPoint(at: run.s)).s
+                    laneOcc[laneKey(e, v.lane)].append(Occupant(s: max(v.s, min(front, edge.length)), index: Int32(i)))
                 }
                 continue
             }

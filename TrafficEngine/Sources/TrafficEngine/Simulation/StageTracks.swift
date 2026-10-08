@@ -378,6 +378,8 @@ extension Simulation {
                 }
                 v.track = .connector(nc)
                 v.s = min(conn.path.project(v.front).s, conn.length)
+                // The junction reshaped under it: it leaves rather than jump (D15).
+                if conn.path.point(at: v.s).distance(to: v.front) > 0.15 { v.mode = .finished; vehicles[i] = v; continue }
             }
             v.committed = v.committed && v.plannedConnector != nil
             // Destinations: buildings follow their (re-anchored) driveway; other

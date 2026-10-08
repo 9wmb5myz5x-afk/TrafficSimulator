@@ -1,0 +1,30 @@
+map: stressCity  device: iPad Pro 11-inch (M5)  (in-app script)
+idle at 1x frames= 121 hitches>100ms= 0 >250ms= 0 >1s=0  worstFrame=   78ms  simQueueWait=  13ms
+speed 10x (idle 5 s) frames= 124 hitches>100ms= 4 >250ms= 3 >1s=0  worstFrame=  588ms  simQueueWait=  21ms
+palette roads frames=  11 hitches>100ms= 3 >250ms= 3 >1s=0  worstFrame=  361ms  simQueueWait=   7ms
+palette homes frames=  25 hitches>100ms= 3 >250ms= 3 >1s=0  worstFrame=  365ms  simQueueWait=   0ms
+palette work frames=  25 hitches>100ms= 2 >250ms= 2 >1s=0  worstFrame=  413ms  simQueueWait=  10ms
+palette services frames=  28 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  388ms  simQueueWait=  18ms
+palette junctions frames=  30 hitches>100ms= 1 >250ms= 1 >1s=0  worstFrame=  350ms  simQueueWait=   9ms
+palette bulldoze frames=  28 hitches>100ms= 1 >250ms= 1 >1s=0  worstFrame=  321ms  simQueueWait=  12ms
+palette inspect frames=  36 hitches>100ms= 2 >250ms= 2 >1s=0  worstFrame=  345ms  simQueueWait=  21ms
+overlay cycle 1 frames=  42 hitches>100ms= 4 >250ms= 2 >1s=0  worstFrame=  341ms  simQueueWait= 250ms
+overlay cycle 2 frames=  44 hitches>100ms= 2 >250ms= 2 >1s=0  worstFrame=  361ms  simQueueWait=  11ms
+overlay cycle 3 frames=  48 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  392ms  simQueueWait=  16ms
+traffic sheet open frames=  25 hitches>100ms= 3 >250ms= 2 >1s=0  worstFrame=  388ms  simQueueWait=  15ms
+traffic preset heavy frames=  26 hitches>100ms= 3 >250ms= 2 >1s=0  worstFrame=  455ms  simQueueWait=  18ms
+traffic sheet close frames=  29 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  380ms  simQueueWait=  16ms
+stats open frames=  17 hitches>100ms= 3 >250ms= 2 >1s=0  worstFrame=  771ms  simQueueWait=  11ms
+stats close frames=  17 hitches>100ms= 2 >250ms= 2 >1s=0  worstFrame=  488ms  simQueueWait=  12ms
+select 1 frames=  24 hitches>100ms= 6 >250ms= 1 >1s=0  worstFrame=  362ms  simQueueWait=  15ms
+select 2 frames=  27 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  379ms  simQueueWait= 206ms
+select 3 frames=  27 hitches>100ms= 3 >250ms= 1 >1s=0  worstFrame=  436ms  simQueueWait=   6ms
+select 4 frames=  29 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  581ms  simQueueWait=  18ms
+clear selection frames=  15 hitches>100ms= 2 >250ms= 2 >1s=0  worstFrame=  428ms  simQueueWait=  19ms
+show whole city frames=  24 hitches>100ms= 2 >250ms= 1 >1s=0  worstFrame=  379ms  simQueueWait=  14ms
+draw road frames=  36 hitches>100ms= 5 >250ms= 3 >1s=0  worstFrame=  454ms  simQueueWait= 203ms
+place a house frames=   1 hitches>100ms= 1 >250ms= 0 >1s=0  worstFrame=  132ms  simQueueWait=  17ms
+undo frames=  34 hitches>100ms= 5 >250ms= 2 >1s=1  worstFrame= 2185ms  simQueueWait=  19ms
+undo again frames=  30 hitches>100ms= 3 >250ms= 1 >1s=0  worstFrame=  424ms  simQueueWait=  13ms
+speed 30x (idle 6 s) frames=  81 hitches>100ms= 7 >250ms= 5 >1s=0  worstFrame=  788ms  simQueueWait=  25ms
+total: frames=1147 worstFrame=2185ms hitches>100ms=81 >250ms=50 >1s=1

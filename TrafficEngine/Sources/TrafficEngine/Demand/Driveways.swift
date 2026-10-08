@@ -306,6 +306,17 @@ extension Simulation {
                 }
             }
         }
+        // Anything on the path just ahead — a car waiting at the mouth of a
+        // neighbour's driveway that a long back-row driveway passes, a car
+        // turning into the next plot: stop short of it. When two cars are each
+        // on the other's path, the lower id goes first (no stand-off).
+        if let o = drivewayObstacle(i) {
+            let mutual = vehicles[o.index].mode == .onDriveway && drivewayObstacle(o.index)?.index == i
+            if !(mutual && v.id.raw < vehicles[o.index].id.raw) {
+                a = min(a, IDM.acceleration(v.driver.idm, speed: v.speed, desiredSpeed: Self.drivewaySpeed,
+                                            gap: o.gap, leaderSpeed: 0))
+            }
+        }
         a = max(a, -IDM.emergencyDeceleration)
         var speed = max(0, v.speed + a * dt)
         if speed * dt > remaining { speed = remaining / dt }
@@ -321,6 +332,37 @@ extension Simulation {
             vehicles[i].driveway?.s = run.path.length
         }
         return done
+    }
+
+    /// The nearest vehicle whose body lies on the next few metres of a
+    /// driveway car's path, and the free distance to it.
+    func drivewayObstacle(_ i: Int) -> (index: Int, gap: Double)? {
+        let v = vehicles[i]
+        guard let run = v.driveway else { return nil }
+        let ahead = min(8.0, run.path.length - run.s)
+        guard ahead > 0.3 else { return nil }
+        let clearance = v.width / 2 + 0.25
+        var best: (index: Int, gap: Double)?
+        for j in kerbside where j != i && j < vehicles.count {
+            let w = vehicles[j]
+            guard w.mode != .waitingToEnter, w.mode != .finished,
+                  w.center.distance(to: v.front) < ahead + w.length + clearance else { continue }
+            let box = w.footprint
+            var d = 0.5
+            while d <= ahead {
+                if let b = best, d >= b.gap { break }
+                let p = run.path.point(at: run.s + d) - box.center
+                let along = abs(p.dot(box.axis)) - box.halfLength
+                let across = abs(p.dot(box.axis.perpendicular)) - box.halfWidth
+                let dist = (max(along, 0) * max(along, 0) + max(across, 0) * max(across, 0)).squareRoot()
+                if dist < clearance {
+                    best = (j, max(d - 0.5, 0.01))
+                    break
+                }
+                d += 0.5
+            }
+        }
+        return best
     }
 
     /// From the mouth of the driveway into the edge frame: the car is now

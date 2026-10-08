@@ -57,6 +57,11 @@ public final class RoadNetwork {
     public private(set) var majorApproaches: [Set<EdgeID>] = []
     /// Increments on every rebuild; renderers use it to invalidate caches.
     public private(set) var version: Int = 0
+    /// Changes only when the shape of the network changes (roads, lanes,
+    /// junction surfaces) — not when a junction's control does. Lets the
+    /// city and the renderer skip rebuilding what a control change can't affect.
+    public private(set) var geometryVersion: Int = 0
+    private var geometrySignature: Int?
     /// Nodes whose geometry changed in the last rebuild (for incremental redraw).
     public private(set) var lastChangedNodes: Set<NodeID> = []
 
@@ -316,6 +321,29 @@ public final class RoadNetwork {
 
     // MARK: - Rebuild
 
+    /// A hash of the derived shape: every carriageway's reference line and
+    /// lanes, every junction surface, and the node levels and regional flags.
+    private func shapeSignature() -> Int {
+        var h = Hasher()
+        func add(_ v: Vector2) { h.combine(v.x); h.combine(v.y) }
+        for e in edges {
+            guard let e else { h.combine(-1); continue }
+            h.combine(e.road.raw); h.combine(e.level); h.combine(e.isBridge); h.combine(e.roadClass.rawValue)
+            for p in e.reference.points { add(p) }
+            for l in e.lanes { h.combine(l.lateral); h.combine(l.width); h.combine(l.sStart); h.combine(l.sEnd); h.combine(l.kind.rawValue) }
+        }
+        for g in nodeGeometry {
+            guard let g else { h.combine(-2); continue }
+            add(g.center)
+            for p in g.surface { add(p) }
+        }
+        for n in data.nodes {
+            guard let n else { continue }
+            h.combine(n.level); h.combine(n.isRegionalConnection)
+        }
+        return h.finalize()
+    }
+
     public func rebuild() {
         var builder = NetworkBuilder(data: data, config: config)
         let result = builder.build()
@@ -334,6 +362,8 @@ public final class RoadNetwork {
         majorApproaches = result.majorApproaches
         conflicts = ConflictMap.build(network: self)
         version += 1
+        let sig = shapeSignature()
+        if sig != geometrySignature { geometrySignature = sig; geometryVersion += 1 }
         lastChangedNodes = pendingChanged
         pendingChanged = []
         dirty = false

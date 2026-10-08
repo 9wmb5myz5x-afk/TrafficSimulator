@@ -77,6 +77,8 @@ struct BuildingSprite: Equatable {
 /// Static map geometry, rebuilt only when the network or the buildings change.
 struct StaticGeometry {
     var networkVersion: Int
+    /// Changes only with the shape of the roads (see `RoadNetwork.geometryVersion`).
+    var geometryVersion: Int
     var cityVersion: Int
     var roads: [RoadRenderData]
     var junctions: [JunctionRenderData]

@@ -73,8 +73,14 @@ final class CityScene: SKScene {
     private var nextInbound: [CFTimeInterval] = []
     private var signalNodes: [SKSpriteNode] = []
     private var markerNodes: [SKSpriteNode] = []
-    private var roadFills: [Int: [SKShapeNode]] = [:]        // road raw id → fill shapes (for overlays)
+    private var roadFillPaths: [Int: CGPath] = [:]            // road raw id → its surface outline (for overlays)
+    private var geometryVersion = -1
+    /// Countryside roads and town roads live in separate containers within
+    /// the same layers, so either can be rebuilt alone.
+    private let countryEdges = SKNode(), countryFills = SKNode(), countryMarks = SKNode()
+    private let townEdges = SKNode(), townFills = SKNode(), townMarks = SKNode()
     private var overlayShapes: [Int: SKShapeNode] = [:]
+    private var shownOverlay: (kind: MapOverlay, values: [Int: Double])?
     private var highlightKey: Int = 0
     private var didFit = false
     private var phase: Double = 0
@@ -107,6 +113,9 @@ final class CityScene: SKScene {
             layer.zPosition = CGFloat(i) * 10
             world.addChild(layer)
         }
+        roadEdgeLayer.addChild(countryEdges); roadEdgeLayer.addChild(townEdges)
+        roadFillLayer.addChild(countryFills); roadFillLayer.addChild(townFills)
+        markingLayer.addChild(countryMarks); markingLayer.addChild(townMarks)
         lightLayer.alpha = 0
         addChild(world)
         addChild(cam)
@@ -129,10 +138,16 @@ final class CityScene: SKScene {
         guard let controller else { return }
         if let g = controller.buffer.latestGeometry(), g.networkVersion != networkVersion || g.cityVersion != cityVersion {
             let networkChanged = g.networkVersion != networkVersion
+            let shapeChanged = g.geometryVersion != geometryVersion
+            let cityChanged = g.cityVersion != cityVersion
             networkVersion = g.networkVersion
+            geometryVersion = g.geometryVersion
             cityVersion = g.cityVersion
-            if networkChanged { rebuildTerrainAndRoads(g) }
-            rebuildBuildings(g, animate: didFit && !reduceMotion)
+            // Only what changed: a junction control switch redraws markings
+            // alone; a new building redraws buildings alone.
+            if shapeChanged { rebuildCountry(g); rebuildRoads(g) }
+            if networkChanged { rebuildMarkings(g) }
+            if shapeChanged || cityChanged { rebuildBuildings(g, animate: didFit && !reduceMotion) }
             // The navigable region: the whole map, not just where the roads are.
             worldBounds = (Vector2(min(g.bounds.min.x, g.terrain.minCorner.x), min(g.bounds.min.y, g.terrain.minCorner.y)),
                            Vector2(max(g.bounds.max.x, g.terrain.maxCorner.x), max(g.bounds.max.y, g.terrain.maxCorner.y)))
@@ -176,11 +191,10 @@ final class CityScene: SKScene {
         return n
     }
 
-    private func rebuildTerrainAndRoads(_ g: StaticGeometry) {
-        for l in [terrainLayer, roadEdgeLayer, roadFillLayer, markingLayer, labelLayer] { l.removeAllChildren() }
-        overlayLayer.removeAllChildren()
-        overlayShapes.removeAll()
-        roadFills.removeAll()
+    /// The countryside, terrain (water, parks, beaches) and map labels: they
+    /// only change with the shape of the network (the regional roads).
+    private func rebuildCountry(_ g: StaticGeometry) {
+        for l in [terrainLayer, labelLayer, countryEdges, countryFills, countryMarks] { l.removeAllChildren() }
         let p = phase
         drawCountryside(g.outskirts, phase: p)
         // Terrain.
@@ -223,40 +237,121 @@ final class CityScene: SKScene {
             ])
             labelLayer.addChild(n)
         }
-        // Roads: edge strokes beneath, fills above, so junctions merge seamlessly.
+    }
+
+    /// Road and junction surfaces. Each surface stays its own shape:
+    /// SpriteKit fills a compound path even-odd, so overlapping surfaces
+    /// merged into one would show holes. The edges beneath them (always
+    /// covered where they overlap), medians and islands are merged.
+    private func rebuildRoads(_ g: StaticGeometry) {
+        for l in [townEdges, townFills] { l.removeAllChildren() }
+        overlayLayer.removeAllChildren()
+        overlayShapes.removeAll()
+        shownOverlay = nil
+        roadFillPaths.removeAll()
+        let p = phase
         let edge = Theme.ui(.roadEdge, phase: p), fill = Theme.ui(.road, phase: p)
+        func add(_ poly: [Vector2], to path: CGMutablePath) {
+            guard poly.count >= 3 else { return }
+            path.addLines(between: poly.map { cg($0) })
+            path.closeSubpath()
+        }
+        func node(_ path: CGPath, fill: UIColor?, stroke: UIColor? = nil, width: CGFloat = 0, z: CGFloat) -> SKShapeNode {
+            let n = SKShapeNode(path: path)
+            n.fillColor = fill ?? .clear
+            n.strokeColor = stroke ?? .clear
+            n.lineWidth = width
+            n.lineJoin = .round
+            n.zPosition = z
+            return n
+        }
+        let edges = CGMutablePath(), medians = CGMutablePath(), islands = CGMutablePath()
         for r in g.roads {
-            roadEdgeLayer.addChild(shape(r.surface.polygon, fill: edge, stroke: edge, width: 1.2))
-            let f = shape(r.surface.polygon, fill: r.surface.isBridge ? Theme.ui(.bridge, phase: p) : fill)
-            f.zPosition = CGFloat(r.surface.level)
+            add(r.surface.polygon, to: edges)
+            let own = CGMutablePath()
+            add(r.surface.polygon, to: own)
+            roadFillPaths[r.surface.road.raw] = own
+            let level = CGFloat(r.surface.level)
             if r.surface.isBridge || r.surface.level > 0 {
                 // Raised roads cast a soft shadow.
-                let sh = shape(r.surface.polygon.map { $0 + Vector2(1.6, -1.6) }, fill: Theme.ui(.shadow).withAlphaComponent(0.16))
-                sh.zPosition = f.zPosition - 0.5
-                roadFillLayer.addChild(sh)
+                let sh = CGMutablePath()
+                add(r.surface.polygon.map { $0 + Vector2(1.6, -1.6) }, to: sh)
+                townFills.addChild(node(sh, fill: Theme.ui(.shadow).withAlphaComponent(0.16), z: level - 0.5))
             }
-            roadFillLayer.addChild(f)
-            roadFills[r.surface.road.raw, default: []].append(f)
+            townFills.addChild(node(own, fill: r.surface.isBridge ? Theme.ui(.bridge, phase: p) : fill, z: level))
+            for m in r.medians { add(m, to: medians) }
         }
         for j in g.junctions where j.polygon.count >= 3 {
-            roadEdgeLayer.addChild(shape(j.polygon, fill: edge, stroke: edge, width: 1.2))
-            let f = shape(j.polygon, fill: fill)
-            f.zPosition = CGFloat(j.level)
-            roadFillLayer.addChild(f)
+            add(j.polygon, to: edges)
+            let path = CGMutablePath()
+            add(j.polygon, to: path)
+            townFills.addChild(node(path, fill: fill, z: CGFloat(j.level)))
         }
         for rb in g.roundabouts {
-            roadEdgeLayer.addChild(shape(rb.outer, fill: edge, stroke: edge, width: 1.2))
-            roadFillLayer.addChild(shape(rb.outer, fill: fill))
-            let island = shape(rb.island, fill: Theme.ui(.median, phase: p))
-            island.zPosition = 2
-            roadFillLayer.addChild(island)
+            add(rb.outer, to: edges)
+            let path = CGMutablePath()
+            add(rb.outer, to: path)
+            townFills.addChild(node(path, fill: fill, z: 0))
+            add(rb.island, to: islands)
         }
+        townEdges.addChild(node(edges, fill: edge, stroke: edge, width: 1.2, z: 0))
+        if !islands.isEmpty { townFills.addChild(node(islands, fill: Theme.ui(.median, phase: p), z: 2)) }
+        if !medians.isEmpty { townFills.addChild(node(medians, fill: Theme.ui(.median, phase: p), z: 2)) }
+    }
+
+    /// Lane markings, stop and give-way lines and arrows, merged by style.
+    /// A junction changing control (the warrant review) rebuilds only these.
+    private func rebuildMarkings(_ g: StaticGeometry) {
+        townMarks.removeAllChildren()
+        var groups: [String: (path: CGMutablePath, color: UIColor, width: CGFloat, cap: CGLineCap)] = [:]
+        func add(_ m: Marking) {
+            guard m.points.count >= 2 else { return }
+            let color: UIColor, colorKey: String
+            var dash: [CGFloat]?
+            switch m.kind {
+            case .laneDash: color = Theme.ui(.laneMarking); colorKey = "l"; dash = [3, 6]
+            case .laneSolid, .edgeLine, .stopBar: color = Theme.ui(.laneMarking); colorKey = "l"
+            case .centreDouble: color = Theme.ui(.centerLine); colorKey = "c"
+            case .yieldLine: color = Theme.ui(.laneMarking); colorKey = "l"; dash = [0.6, 0.6]
+            }
+            let width = CGFloat(m.kind == .centreDouble ? m.width * 3 : m.width * 1.4)
+            let key = "\(colorKey)-\(Int(width * 100))"
+            let entry = groups[key] ?? (CGMutablePath(), color, width, .butt)
+            var p: CGPath = path(m.points, closed: false)
+            if let d = dash { p = p.copy(dashingWithPhase: 0, lengths: d) }
+            entry.path.addPath(p)
+            groups[key] = entry
+        }
+        for r in g.roads { r.markings.forEach(add) }
+        for j in g.junctions { j.markings.forEach(add) }
+        // Arrows: stems with a short head, bent towards the turn, all in one shape.
+        let arrows = CGMutablePath()
         for r in g.roads {
-            for m in r.medians { roadFillLayer.addChild(withZ(shape(m, fill: Theme.ui(.median, phase: p)), 2)) }
-            for m in r.markings { addMarking(m) }
-            for a in r.arrows { addArrow(a) }
+            for a in r.arrows where !a.movements.isEmpty {
+                let t = CGAffineTransform(translationX: a.position.x, y: a.position.y).rotated(by: CGFloat(a.heading))
+                for mv in a.movements {
+                    let bend: CGFloat
+                    switch mv {
+                    case .straight: bend = 0
+                    case .left: bend = 1
+                    case .right: bend = -1
+                    case .uTurn: bend = 1.6
+                    }
+                    arrows.move(to: CGPoint(x: -2.2, y: 0), transform: t)
+                    arrows.addLine(to: CGPoint(x: 0.6, y: 0), transform: t)
+                    arrows.addLine(to: CGPoint(x: 1.6, y: bend * 0.9), transform: t)
+                }
+            }
         }
-        for j in g.junctions { for m in j.markings { addMarking(m) } }
+        if !arrows.isEmpty { groups["arrows"] = (arrows, Theme.ui(.laneMarking), 0.28, .round) }
+        for (_, gr) in groups {
+            let n = SKShapeNode(path: gr.path)
+            n.strokeColor = gr.color
+            n.fillColor = .clear
+            n.lineWidth = gr.width
+            n.lineCap = gr.cap
+            townMarks.addChild(n)
+        }
     }
 
     private func withZ(_ n: SKNode, _ z: CGFloat) -> SKNode { n.zPosition = z; return n }
@@ -305,12 +400,12 @@ final class CityScene: SKScene {
                 n.fillColor = .clear
                 layer.addChild(n)
             }
-            stroke(edge, 2 * r.halfWidth + 1.2, layer: roadEdgeLayer)
-            stroke(fill, 2 * r.halfWidth, layer: roadFillLayer)
+            stroke(edge, 2 * r.halfWidth + 1.2, layer: countryEdges)
+            stroke(fill, 2 * r.halfWidth, layer: countryFills)
             if r.isHighway {
-                stroke(Theme.ui(.median, phase: p), 1.6, layer: markingLayer)
+                stroke(Theme.ui(.median, phase: p), 1.6, layer: countryMarks)
             } else {
-                stroke(Theme.ui(.centerLine, phase: p), 0.3, layer: markingLayer)
+                stroke(Theme.ui(.centerLine, phase: p), 0.3, layer: countryMarks)
             }
             for k in 1..<max(r.lanesEachWay, 1) {
                 let lat = Double(k) * 3.5 + (r.isHighway ? 0.8 : 0)
@@ -320,7 +415,7 @@ final class CityScene: SKScene {
                     let n = SKShapeNode(path: lane.copy(dashingWithPhase: 0, lengths: [3, 6]))
                     n.strokeColor = Theme.ui(.laneMarking, phase: p)
                     n.lineWidth = 0.25
-                    markingLayer.addChild(n)
+                    countryMarks.addChild(n)
                 }
             }
         }
@@ -383,6 +478,10 @@ final class CityScene: SKScene {
                 body.size = CGSize(width: 4.5, height: 1.85)
                 body.color = RGB(Theme.vehicleBodies[Int.random(in: 0..<Theme.vehicleBodies.count)]).ui
                 body.colorBlendFactor = 1
+                let top = SKSpriteNode(texture: Textures.vehicleTop(.car))
+                top.size = body.size
+                top.zPosition = 0.5
+                body.addChild(top)
                 body.alpha = 0
                 vehicleLayer.addChild(body)
                 let speed = (r.isHighway ? 29.0 : 22.0) * simSpeed * Double.random(in: 0.85...1.1)
@@ -426,51 +525,6 @@ final class CityScene: SKScene {
         }
     }
 
-    private func addMarking(_ m: Marking) {
-        let color: UIColor
-        var dash: [CGFloat]?
-        switch m.kind {
-        case .laneDash: color = Theme.ui(.laneMarking); dash = [3, 6]
-        case .laneSolid, .edgeLine: color = Theme.ui(.laneMarking)
-        case .centreDouble: color = Theme.ui(.centerLine)
-        case .stopBar: color = Theme.ui(.laneMarking)
-        case .yieldLine: color = Theme.ui(.laneMarking); dash = [0.6, 0.6]
-        }
-        var p = path(m.points, closed: false)
-        if let d = dash { p = p.copy(dashingWithPhase: 0, lengths: d) }
-        let n = SKShapeNode(path: p)
-        n.strokeColor = color
-        n.lineWidth = CGFloat(m.kind == .centreDouble ? m.width * 3 : m.width * 1.4)
-        n.lineCap = .butt
-        markingLayer.addChild(n)
-    }
-
-    private func addArrow(_ a: LaneArrow) {
-        guard !a.movements.isEmpty else { return }
-        let n = SKShapeNode()
-        let p = CGMutablePath()
-        for mv in a.movements {
-            // A stem with a short head, bent towards the turn.
-            let bend: CGFloat
-            switch mv {
-            case .straight: bend = 0
-            case .left: bend = 1
-            case .right: bend = -1
-            case .uTurn: bend = 1.6
-            }
-            p.move(to: CGPoint(x: -2.2, y: 0))
-            p.addLine(to: CGPoint(x: 0.6, y: 0))
-            p.addLine(to: CGPoint(x: 1.6, y: bend * 0.9))
-        }
-        n.path = p
-        n.strokeColor = Theme.ui(.laneMarking)
-        n.lineWidth = 0.28
-        n.lineCap = .round
-        n.position = cg(a.position)
-        n.zRotation = CGFloat(a.heading)
-        markingLayer.addChild(n)
-    }
-
     // MARK: - Buildings
 
     private func rebuildBuildings(_ g: StaticGeometry, animate: Bool) {
@@ -501,16 +555,25 @@ final class CityScene: SKScene {
                 shadowLayer.addChild(n)
             }
         }
+        // Shadows and side bands are plain rotated sprites: SpriteKit draws
+        // untextured sprites in one batch (one shape node per building is a
+        // draw call each), and overlapping neighbours still darken as before.
+        let shadowColor = Theme.ui(.shadow).withAlphaComponent(0.14)
+        var sideColors: [BuildingKind: UIColor] = [:]
         for b in g.buildings {
-            let f = Vector2.unit(angle: b.rotation), r = f.perpendicular
-            let hw = b.width / 2, hd = b.depth / 2
-            let poly = [b.center + r * hw - f * hd, b.center - r * hw - f * hd, b.center - r * hw + f * hd, b.center + r * hw + f * hd]
+            let size = CGSize(width: b.width, height: b.depth)
+            let angle = CGFloat(b.rotation - .pi / 2)
             // Shadow and side band: offset towards the bottom-right in world space.
             let h = b.storeys
-            let shadowOffset = Vector2(1.2 + h * 1.1, -(1.2 + h * 1.1))
-            let shadow = shape(poly.map { $0 + shadowOffset }, fill: Theme.ui(.shadow).withAlphaComponent(0.14))
+            let shadow = SKSpriteNode(color: shadowColor, size: size)
+            shadow.position = cg(b.center + Vector2(1.2 + h * 1.1, -(1.2 + h * 1.1)))
+            shadow.zRotation = angle
             shadowLayer.addChild(shadow)
-            let side = shape(poly.map { $0 + Vector2(0.5, -(0.9 + h * 0.25)) }, fill: Theme.ui(b.kind.tokens.side, phase: phase))
+            let sideColor = sideColors[b.kind] ?? Theme.ui(b.kind.tokens.side, phase: phase)
+            sideColors[b.kind] = sideColor
+            let side = SKSpriteNode(color: sideColor, size: size)
+            side.position = cg(b.center + Vector2(0.5, -(0.9 + h * 0.25)))
+            side.zRotation = angle
             side.zPosition = 0
             buildingLayer.addChild(side)
             // Roof tile (texture carries the pictogram), rotated with the building.
@@ -574,8 +637,8 @@ final class CityScene: SKScene {
             body.color = RGB(Theme.vehicleBodies[Int(p.color) % Theme.vehicleBodies.count]).ui
             body.colorBlendFactor = 1
         }
-        // A tiny drop shadow.
-        let shadow = SKSpriteNode(texture: Textures.vehicle(p.cls))
+        // A tiny drop shadow of the whole outline.
+        let shadow = SKSpriteNode(texture: Textures.vehicleShape(p.cls))
         shadow.color = .black
         shadow.colorBlendFactor = 1
         shadow.alpha = 0.18
@@ -583,16 +646,24 @@ final class CityScene: SKScene {
         shadow.position = CGPoint(x: 0.35, y: -0.35)
         shadow.zPosition = -1
         body.addChild(shadow)
+        // What makes the type readable: glass, roof, cargo box, livery (untinted).
+        let top = SKSpriteNode(texture: Textures.vehicleTop(p.cls))
+        top.size = body.size
+        top.zPosition = 0.5
+        body.addChild(top)
         let node = VehicleNode(body: body)
-        let hx = len / 2, hy = wid / 2
-        let red = Theme.ui(.signalRed), amber = Theme.ui(.signalAmber)
-        node.brake = [lamp(red, size: 0.55, at: CGPoint(x: -hx + 0.15, y: hy - 0.3), in: body),
-                      lamp(red, size: 0.55, at: CGPoint(x: -hx + 0.15, y: -hy + 0.3), in: body)]
-        // Left is +y in the vehicle frame (heading along +x).
-        node.blinkL = [lamp(amber, size: 0.6, at: CGPoint(x: hx - 0.2, y: hy - 0.15), in: body),
-                       lamp(amber, size: 0.6, at: CGPoint(x: -hx + 0.2, y: hy - 0.15), in: body)]
-        node.blinkR = [lamp(amber, size: 0.6, at: CGPoint(x: hx - 0.2, y: -hy + 0.15), in: body),
-                       lamp(amber, size: 0.6, at: CGPoint(x: -hx + 0.2, y: -hy + 0.15), in: body)]
+        func lampLayer(_ lamp: Textures.Lamp) -> SKSpriteNode {
+            let n = SKSpriteNode(texture: Textures.lamps(p.cls, lamp))
+            n.size = body.size
+            n.zPosition = 1
+            n.isHidden = true
+            body.addChild(n)
+            return n
+        }
+        node.brake = [lampLayer(.brake)]
+        node.blinkL = [lampLayer(.left)]
+        node.blinkR = [lampLayer(.right)]
+        let hy = wid / 2
         if p.cls == .police {
             node.bar = [lamp(Theme.ui(.policeRed), size: 0.9, at: CGPoint(x: 0, y: hy * 0.45), in: body),
                         lamp(Theme.ui(.policeBlue), size: 0.9, at: CGPoint(x: 0, y: -hy * 0.45), in: body)]
@@ -617,6 +688,9 @@ final class CityScene: SKScene {
         let night = phase > 1.0
         let dt = lastVehicleTime == 0 ? 0 : min(time - lastVehicleTime, 0.1)
         lastVehicleTime = time
+        // Zoomed out, vehicles are drawn a little larger so their type stays
+        // readable (up to 1.6×; at that zoom the overlap is under a point).
+        let boost = (camScale / 0.3).clamped(1, 1.6)
         for p in poses {
             live.insert(p.id)
             let pos = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
@@ -634,6 +708,7 @@ final class CityScene: SKScene {
             node.lastPosition = pos
             node.body.position = pos
             node.body.zRotation = CGFloat(p.heading)
+            if node.body.xScale != boost { node.body.setScale(boost) }
             node.body.alpha = CGFloat(p.visibility)
             let braking = p.flags & VehiclePose.Flag.braking != 0
             let hazard = p.flags & VehiclePose.Flag.hazard != 0
@@ -707,10 +782,14 @@ final class CityScene: SKScene {
     private func updateOverlay(_ o: OverlayData?) {
         guard let o else {
             if !overlayShapes.isEmpty { overlayLayer.removeAllChildren(); overlayShapes.removeAll() }
+            shownOverlay = nil
             return
         }
+        // Recolour only when the data changed (it refreshes every couple of seconds).
+        if let shown = shownOverlay, shown.kind == o.kind, shown.values == o.values, !overlayShapes.isEmpty { return }
+        shownOverlay = (o.kind, o.values)
         for (road, value) in o.values {
-            guard let fills = roadFills[road], let first = fills.first, let p = first.path else { continue }
+            guard let p = roadFillPaths[road] else { continue }
             let n = overlayShapes[road] ?? {
                 let s = SKShapeNode(path: p)
                 s.lineWidth = 0

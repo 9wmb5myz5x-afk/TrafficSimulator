@@ -146,6 +146,9 @@ public final class Simulation {
     /// Set when vehicles were removed after the last index rebuild.
     var indexStale = false
 
+    /// The network shape the city's driveways were last anchored to.
+    var builtGeometryVersion = -1
+
     public func networkDidChange() {
         if builtNetworkVersion == network.version && !laneBase.isEmpty { return }
         builtNetworkVersion = network.version
@@ -161,7 +164,11 @@ public final class Simulation {
         connCommits = Array(repeating: [], count: network.connectors.count)
         router.refresh()
         signals.rebuild(network: network, config: config, time: time)
-        city.networkDidChange(self)
+        // Driveways depend on the shape of the roads only (not on control).
+        if builtGeometryVersion != network.geometryVersion {
+            builtGeometryVersion = network.geometryVersion
+            city.networkDidChange(self)
+        }
         if !builtEdgeRefs.isEmpty { lastNetworkEdit = time }
         reconcileVehiclesAfterEdit(oldRefs: builtEdgeRefs, oldLanes: builtLaneLats)
         builtEdgeRefs = network.edges.map { $0?.reference }

@@ -29,17 +29,38 @@ struct CitySetup: Equatable {
     }()
 }
 
+/// The HUD's numbers (see `GameController.hudModel`).
+final class HUDModel: ObservableObject {
+    @Published var metrics = HUDMetrics()
+}
+
+/// The selected thing's live details (see `GameController.inspectorModel`).
+final class InspectorModel: ObservableObject {
+    @Published var info: InspectorInfo?
+}
+
 final class GameController: ObservableObject {
 
     // MARK: Published UI state (main thread)
-    @Published private(set) var hud = HUDMetrics()
+    /// The HUD's numbers live in their own model: they change four times a
+    /// second, and only the HUD should redraw for that (not the whole screen).
+    let hudModel = HUDModel()
+    var hud: HUDMetrics { hudModel.metrics }
+    /// The traffic dial's level (changes rarely; drives the map button).
+    @Published private(set) var trafficLevel = 1.0
     @Published var isPaused = false { didSet { syncRunState() } }
     @Published var speed: Double = 1 { didSet { syncRunState() } }
     @Published private(set) var scenarioName: String
     @Published private(set) var setup: CitySetup
     @Published var overlay: MapOverlay = .none { didSet { syncRunState() } }
     @Published private(set) var selection: EntityRef?
-    @Published private(set) var inspector: InspectorInfo?
+    /// What is selected, for layout: changes only when the selection does.
+    /// Its live numbers (a moving car's speed…) go to `inspectorModel`, so
+    /// only the card redraws as they change.
+    @Published private(set) var inspector: InspectorInfo? {
+        didSet { inspectorModel.info = inspector }
+    }
+    let inspectorModel = InspectorModel()
     /// The active build tool and its options.
     @Published var tool: BuildTool = .inspect { didSet { if tool != .inspect { clearSelection() } } }
     @Published var roadOptions = RoadOptions()
@@ -159,6 +180,10 @@ final class GameController: ObservableObject {
         simQueue.async { [weak self] in
             guard let self else { return }
             self.sim = restored ?? GameController.makeSimulation(s ?? CitySetup())
+            self.outskirtsCache = nil
+            self.renderCache = nil
+            self.drivewayCacheGeometry = -1
+            self.drivewayCache.removeAll()
             self.editor = Editor(sim: self.sim)
             self.lastAutosaveHour = Int(self.sim.clock / 3600)
             self.accumulator = 0
@@ -306,7 +331,8 @@ final class GameController: ObservableObject {
 
     /// Turn the traffic dial (takes effect at once; see `Simulation.setTrafficLevel`).
     func setTrafficLevel(_ level: Double) {
-        hud.trafficLevel = level
+        hudModel.metrics.trafficLevel = level
+        trafficLevel = level
         simQueue.async { [weak self] in self?.sim.setTrafficLevel(level) }
     }
 
@@ -491,9 +517,16 @@ final class GameController: ObservableObject {
             let stillSelected = runSelection
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.hud = h
+                if self.hudModel.metrics != h { self.hudModel.metrics = h }
+                if self.trafficLevel != h.trafficLevel { self.trafficLevel = h.trafficLevel }
                 if self.selection != nil {
-                    if stillSelected == nil { self.selection = nil; self.inspector = nil } else { self.inspector = info }
+                    if stillSelected == nil {
+                        self.selection = nil; self.inspector = nil
+                    } else if self.inspector?.title != info?.title || self.inspector?.subtitle != info?.subtitle {
+                        self.inspector = info
+                    } else if self.inspectorModel.info != info {
+                        self.inspectorModel.info = info
+                    }
                 }
             }
         }
@@ -504,7 +537,11 @@ final class GameController: ObservableObject {
         guard force || net.version != publishedNetwork || sim.city.version != publishedCity else { return }
         publishedNetwork = net.version
         publishedCity = sim.city.version
-        let all = RenderGeometryBuilder.all(net)
+        // Road geometry only changes with the network (not with buildings).
+        if renderCache?.version != net.version {
+            renderCache = (net.version, RenderGeometryBuilder.all(net), RenderGeometryBuilder.roundabouts(net))
+        }
+        let all = renderCache!.all
         var lo = Vector2(.infinity, .infinity), hi = Vector2(-.infinity, -.infinity)
         for r in all.roads { for p in r.surface.polygon { lo = Vector2(min(lo.x, p.x), min(lo.y, p.y)); hi = Vector2(max(hi.x, p.x), max(hi.y, p.y)) } }
         if !lo.x.isFinite { lo = Vector2(-200, -200); hi = Vector2(200, 200) }
@@ -518,14 +555,49 @@ final class GameController: ObservableObject {
             return BuildingSprite(id: b.id.raw, kind: b.kind, center: b.center, rotation: b.rotation,
                                   width: size.width, depth: size.depth, storeys: size.height)
         }
-        buffer.pushGeometry(StaticGeometry(networkVersion: net.version, cityVersion: sim.city.version,
+        // The countryside and the driveways only change with the shape of the
+        // roads (not with a junction's control): reuse them otherwise.
+        let geometry = net.geometryVersion
+        if outskirtsCache?.geometry != geometry {
+            outskirtsCache = (geometry, sim.outskirts(margin: 1100))
+        }
+        if drivewayCacheGeometry != geometry {
+            drivewayCacheGeometry = geometry
+            drivewayCache.removeAll(keepingCapacity: true)
+        }
+        var driveways: [DrivewayStroke] = []
+        var live = Set<Int>()
+        for b in sim.city.buildings {
+            live.insert(b.id.raw)
+            let key = DrivewayKey(access: b.access, center: b.center, rotation: b.rotation, kind: b.kind)
+            if let c = drivewayCache[b.id.raw], c.key == key {
+                driveways += c.strokes
+            } else {
+                let s = sim.drivewayStrokes(for: b)
+                drivewayCache[b.id.raw] = (key, s)
+                driveways += s
+            }
+        }
+        for k in drivewayCache.keys where !live.contains(k) { drivewayCache[k] = nil }
+        buffer.pushGeometry(StaticGeometry(networkVersion: net.version, geometryVersion: geometry, cityVersion: sim.city.version,
                                            roads: all.roads, junctions: all.junctions,
-                                           roundabouts: RenderGeometryBuilder.roundabouts(net),
+                                           roundabouts: renderCache!.roundabouts,
                                            buildings: buildings,
-                                           driveways: sim.city.buildings.flatMap { sim.drivewayStrokes(for: $0) },
-                                           terrain: sim.terrain, outskirts: sim.outskirts(margin: 1100),
+                                           driveways: driveways,
+                                           terrain: sim.terrain, outskirts: outskirtsCache!.value,
                                            bounds: (lo, hi)))
     }
+
+    private struct DrivewayKey: Equatable {
+        var access: BuildingAccess?
+        var center: Vector2
+        var rotation: Double
+        var kind: BuildingKind
+    }
+    private var outskirtsCache: (geometry: Int, value: Outskirts)?
+    private var renderCache: (version: Int, all: (roads: [RoadRenderData], junctions: [JunctionRenderData]), roundabouts: [RoundaboutRenderData])?
+    private var drivewayCache: [Int: (key: DrivewayKey, strokes: [DrivewayStroke])] = [:]
+    private var drivewayCacheGeometry = -1
 
     private func makeOverlay() -> OverlayData? {
         switch runOverlay {

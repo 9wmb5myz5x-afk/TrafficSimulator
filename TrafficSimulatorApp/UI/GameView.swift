@@ -35,18 +35,18 @@ struct GameView: View {
                 .ignoresSafeArea()
                 .accessibilityIdentifier("city.map")
                 .accessibilityLabel("City map")
-                .accessibilityValue("\(game.hud.vehicles) vehicles on the road")
+                .accessibilityHint("Tap to inspect; drag to pan; pinch to zoom")
             GeometryReader { geo in
                 // Portrait phones put the run controls in the side column; the
                 // side column splits in two when the screen is short.
                 let narrow = geo.size.width < 560
                 VStack(spacing: 8) {
                     HStack(alignment: .top, spacing: 10) {
-                        HUDView(hud: game.hud, scenario: game.scenarioName)
+                        LiveHUD(model: game.hudModel, scenario: game.scenarioName)
                         Spacer(minLength: 0)
                         if !narrow { RunControls(game: game) }
                     }
-                    if settings.showDebugOverlay { DebugOverlay(hud: game.hud) }
+                    if settings.showDebugOverlay { LiveDebugOverlay(model: game.hudModel) }
                     if game.tool != .inspect {
                         // While drawing a road: what it will do (or why it can't).
                         Text(game.roadPreview?.summary ?? game.tool.hint)
@@ -125,8 +125,8 @@ struct GameView: View {
     }
 
     @ViewBuilder private var inspectorCard: some View {
-        if let info = game.inspector {
-            InspectorCard(info: info) { game.clearSelection() }
+        if game.inspector != nil {
+            LiveInspector(model: game.inspectorModel) { game.clearSelection() }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -418,11 +418,11 @@ struct MapActions: View {
             .accessibilityHint("Switches between the plain map, congestion and police coverage")))
         out.append(AnyView(
             Button { showTraffic = true } label: {
-                RoundIcon(symbol: "car.2.fill", active: game.hud.trafficLevel > 1.01)
+                RoundIcon(symbol: "car.2.fill", active: game.trafficLevel > 1.01)
             }
             .accessibilityIdentifier("map.traffic")
             .accessibilityLabel("Traffic level")
-            .accessibilityValue(TrafficSheet.describe(game.hud.trafficLevel))))
+            .accessibilityValue(TrafficSheet.describe(game.trafficLevel))))
         out.append(AnyView(
             Button(action: onRecentre) { RoundIcon(symbol: "scope") }
                 .accessibilityIdentifier("map.recentre")
@@ -491,7 +491,7 @@ struct TrafficSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
-        .onAppear { level = game.hud.trafficLevel }
+        .onAppear { level = game.trafficLevel }
     }
 
     private func preset(_ title: String, _ v: Double) -> some View {
@@ -669,5 +669,26 @@ private struct PerfProbeView: View {
             .allowsHitTesting(false)
             .accessibilityIdentifier("perf.probe")
             .accessibilityValue(probe.summary)
+    }
+}
+
+/// The HUD, redrawn on its own when the numbers change.
+private struct LiveHUD: View {
+    @ObservedObject var model: HUDModel
+    let scenario: String
+    var body: some View { HUDView(hud: model.metrics, scenario: scenario) }
+}
+
+private struct LiveDebugOverlay: View {
+    @ObservedObject var model: HUDModel
+    var body: some View { DebugOverlay(hud: model.metrics) }
+}
+
+/// The inspector card, redrawn on its own as the selection's numbers change.
+private struct LiveInspector: View {
+    @ObservedObject var model: InspectorModel
+    var onClose: () -> Void
+    var body: some View {
+        if let info = model.info { InspectorCard(info: info, onClose: onClose) }
     }
 }

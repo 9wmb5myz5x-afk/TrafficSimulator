@@ -322,7 +322,8 @@ public final class RoadNetwork {
     // MARK: - Rebuild
 
     /// A hash of the derived shape: every carriageway's reference line and
-    /// lanes, every junction surface, and the node levels and regional flags.
+    /// lanes, every junction surface, the node levels and regional flags, and
+    /// the movements through each junction.
     private func shapeSignature() -> Int {
         var h = Hasher()
         func add(_ v: Vector2) { h.combine(v.x); h.combine(v.y) }
@@ -341,6 +342,8 @@ public final class RoadNetwork {
             guard let n else { continue }
             h.combine(n.level); h.combine(n.isRegionalConnection)
         }
+        // The movements (they give the lane arrows).
+        for c in connectors { h.combine(c.from); h.combine(c.to); h.combine(c.turn.rawValue) }
         return h.finalize()
     }
 

@@ -78,7 +78,7 @@ final class CityScene: SKScene {
     /// Countryside roads and town roads live in separate containers within
     /// the same layers, so either can be rebuilt alone.
     private let countryEdges = SKNode(), countryFills = SKNode(), countryMarks = SKNode()
-    private let townEdges = SKNode(), townFills = SKNode(), townMarks = SKNode()
+    private let townEdges = SKNode(), townFills = SKNode(), townMarks = SKNode(), junctionMarks = SKNode()
     private var overlayShapes: [Int: SKShapeNode] = [:]
     private var shownOverlay: (kind: MapOverlay, values: [Int: Double])?
     private var highlightKey: Int = 0
@@ -115,7 +115,7 @@ final class CityScene: SKScene {
         }
         roadEdgeLayer.addChild(countryEdges); roadEdgeLayer.addChild(townEdges)
         roadFillLayer.addChild(countryFills); roadFillLayer.addChild(townFills)
-        markingLayer.addChild(countryMarks); markingLayer.addChild(townMarks)
+        markingLayer.addChild(countryMarks); markingLayer.addChild(townMarks); markingLayer.addChild(junctionMarks)
         lightLayer.alpha = 0
         addChild(world)
         addChild(cam)
@@ -143,10 +143,10 @@ final class CityScene: SKScene {
             networkVersion = g.networkVersion
             geometryVersion = g.geometryVersion
             cityVersion = g.cityVersion
-            // Only what changed: a junction control switch redraws markings
-            // alone; a new building redraws buildings alone.
-            if shapeChanged { rebuildCountry(g); rebuildRoads(g) }
-            if networkChanged { rebuildMarkings(g) }
+            // Only what changed: a junction control switch redraws the stop
+            // and give-way lines alone; a new building redraws buildings alone.
+            if shapeChanged { rebuildCountry(g); rebuildRoads(g); rebuildMarkings(g.roads.flatMap(\.markings), arrows: g.roads.flatMap(\.arrows), into: townMarks) }
+            if networkChanged { rebuildMarkings(g.junctions.flatMap(\.markings), arrows: [], into: junctionMarks) }
             if shapeChanged || cityChanged { rebuildBuildings(g, animate: didFit && !reduceMotion) }
             // The navigable region: the whole map, not just where the roads are.
             worldBounds = (Vector2(min(g.bounds.min.x, g.terrain.minCorner.x), min(g.bounds.min.y, g.terrain.minCorner.y)),
@@ -299,10 +299,10 @@ final class CityScene: SKScene {
         if !medians.isEmpty { townFills.addChild(node(medians, fill: Theme.ui(.median, phase: p), z: 2)) }
     }
 
-    /// Lane markings, stop and give-way lines and arrows, merged by style.
-    /// A junction changing control (the warrant review) rebuilds only these.
-    private func rebuildMarkings(_ g: StaticGeometry) {
-        townMarks.removeAllChildren()
+    /// Lane markings, stop and give-way lines and arrows, merged by style
+    /// into a few shapes in `container`.
+    private func rebuildMarkings(_ markings: [Marking], arrows laneArrows: [LaneArrow], into container: SKNode) {
+        container.removeAllChildren()
         var groups: [String: (path: CGMutablePath, color: UIColor, width: CGFloat, cap: CGLineCap)] = [:]
         func add(_ m: Marking) {
             guard m.points.count >= 2 else { return }
@@ -322,25 +322,22 @@ final class CityScene: SKScene {
             entry.path.addPath(p)
             groups[key] = entry
         }
-        for r in g.roads { r.markings.forEach(add) }
-        for j in g.junctions { j.markings.forEach(add) }
+        markings.forEach(add)
         // Arrows: stems with a short head, bent towards the turn, all in one shape.
         let arrows = CGMutablePath()
-        for r in g.roads {
-            for a in r.arrows where !a.movements.isEmpty {
-                let t = CGAffineTransform(translationX: a.position.x, y: a.position.y).rotated(by: CGFloat(a.heading))
-                for mv in a.movements {
-                    let bend: CGFloat
-                    switch mv {
-                    case .straight: bend = 0
-                    case .left: bend = 1
-                    case .right: bend = -1
-                    case .uTurn: bend = 1.6
-                    }
-                    arrows.move(to: CGPoint(x: -2.2, y: 0), transform: t)
-                    arrows.addLine(to: CGPoint(x: 0.6, y: 0), transform: t)
-                    arrows.addLine(to: CGPoint(x: 1.6, y: bend * 0.9), transform: t)
+        for a in laneArrows where !a.movements.isEmpty {
+            let t = CGAffineTransform(translationX: a.position.x, y: a.position.y).rotated(by: CGFloat(a.heading))
+            for mv in a.movements {
+                let bend: CGFloat
+                switch mv {
+                case .straight: bend = 0
+                case .left: bend = 1
+                case .right: bend = -1
+                case .uTurn: bend = 1.6
                 }
+                arrows.move(to: CGPoint(x: -2.2, y: 0), transform: t)
+                arrows.addLine(to: CGPoint(x: 0.6, y: 0), transform: t)
+                arrows.addLine(to: CGPoint(x: 1.6, y: bend * 0.9), transform: t)
             }
         }
         if !arrows.isEmpty { groups["arrows"] = (arrows, Theme.ui(.laneMarking), 0.28, .round) }
@@ -350,7 +347,7 @@ final class CityScene: SKScene {
             n.fillColor = .clear
             n.lineWidth = gr.width
             n.lineCap = gr.cap
-            townMarks.addChild(n)
+            container.addChild(n)
         }
     }
 

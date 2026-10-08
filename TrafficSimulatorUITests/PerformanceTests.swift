@@ -97,29 +97,29 @@ final class PerformanceTests: XCTestCase {
             let done = app.buttons["Done"]
             if done.waitForExistence(timeout: 3) { done.tap() }
         }
-        let map = app.windows.firstMatch
+        let screen = app.windows.firstMatch
         for (k, p) in [(0.45, 0.45), (0.55, 0.6), (0.35, 0.55), (0.62, 0.4)].enumerated() {
             measure(app, "tap map (select) \(k + 1)", into: &report, worst: &worst) {
-                map.coordinate(withNormalizedOffset: CGVector(dx: p.0, dy: p.1)).tap()
+                screen.coordinate(withNormalizedOffset: CGVector(dx: p.0, dy: p.1)).tap()
             }
         }
         measure(app, "double-tap zoom in", into: &report, worst: &worst) {
-            map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+            screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
         }
         measure(app, "pan", into: &report, worst: &worst) {
-            map.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
-                .press(forDuration: 0.05, thenDragTo: map.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.45)))
+            screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.45)))
         }
         measure(app, "recentre", into: &report, worst: &worst) { tapIfPresent(app, "map.recentre") }
         // Edits: a road across the middle of town (junctions, a full map update).
         tapIfPresent(app, "palette.roads")
         measure(app, "draw road", into: &report, worst: &worst, settle: 3) {
-            map.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.62))
-                .press(forDuration: 0.15, thenDragTo: map.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.58)))
+            screen.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.62))
+                .press(forDuration: 0.15, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.58)))
         }
         tapIfPresent(app, "palette.homes")
         measure(app, "place a house", into: &report, worst: &worst, settle: 2) {
-            map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.66)).tap()
+            screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.66)).tap()
         }
         measure(app, "undo", into: &report, worst: &worst, settle: 2) { tapIfPresent(app, "tool.undo") }
         measure(app, "undo again", into: &report, worst: &worst, settle: 2) { tapIfPresent(app, "tool.undo") }

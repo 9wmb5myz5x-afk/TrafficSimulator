@@ -182,6 +182,7 @@ final class GameController: ObservableObject {
             self.sim = restored ?? GameController.makeSimulation(s ?? CitySetup())
             self.outskirtsCache = nil
             self.renderCache = nil
+            self.junctionCache = nil
             self.drivewayCacheGeometry = -1
             self.drivewayCache.removeAll()
             self.editor = Editor(sim: self.sim)
@@ -537,11 +538,16 @@ final class GameController: ObservableObject {
         guard force || net.version != publishedNetwork || sim.city.version != publishedCity else { return }
         publishedNetwork = net.version
         publishedCity = sim.city.version
-        // Road geometry only changes with the network (not with buildings).
-        if renderCache?.version != net.version {
-            renderCache = (net.version, RenderGeometryBuilder.all(net), RenderGeometryBuilder.roundabouts(net))
+        // Roads change only with the shape of the network; junctions (their
+        // stop and give-way lines) with any change; neither with buildings.
+        if renderCache?.geometry != net.geometryVersion {
+            renderCache = (net.geometryVersion, net.allRoads.compactMap { RenderGeometryBuilder.road($0.id, in: net) },
+                           RenderGeometryBuilder.roundabouts(net))
         }
-        let all = renderCache!.all
+        if junctionCache?.version != net.version {
+            junctionCache = (net.version, net.allNodes.compactMap { RenderGeometryBuilder.junction($0.id, in: net) })
+        }
+        let all = (roads: renderCache!.roads, junctions: junctionCache!.junctions)
         var lo = Vector2(.infinity, .infinity), hi = Vector2(-.infinity, -.infinity)
         for r in all.roads { for p in r.surface.polygon { lo = Vector2(min(lo.x, p.x), min(lo.y, p.y)); hi = Vector2(max(hi.x, p.x), max(hi.y, p.y)) } }
         if !lo.x.isFinite { lo = Vector2(-200, -200); hi = Vector2(200, 200) }
@@ -595,7 +601,8 @@ final class GameController: ObservableObject {
         var kind: BuildingKind
     }
     private var outskirtsCache: (geometry: Int, value: Outskirts)?
-    private var renderCache: (version: Int, all: (roads: [RoadRenderData], junctions: [JunctionRenderData]), roundabouts: [RoundaboutRenderData])?
+    private var renderCache: (geometry: Int, roads: [RoadRenderData], roundabouts: [RoundaboutRenderData])?
+    private var junctionCache: (version: Int, junctions: [JunctionRenderData])?
     private var drivewayCache: [Int: (key: DrivewayKey, strokes: [DrivewayStroke])] = [:]
     private var drivewayCacheGeometry = -1
 

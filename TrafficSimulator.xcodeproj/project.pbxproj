@@ -25,6 +25,7 @@
 		88BB8272CC97DCFF41E1CC7B /* TrafficCityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9AC1710FE87164684518C3 /* TrafficCityApp.swift */; };
 		9C97AC390E4DCBF0F882D80B /* GameController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF3483B3632D40B3ED0EEAF /* GameController.swift */; };
 		AEBAC97440C2AE6A3FFE4AE6 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163EB720DA10B735151723C4 /* GameView.swift */; };
+		B78DA12BB51C22F5DF9ACC26 /* PerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCB63BDA5AC97B15796685CD /* PerformanceTests.swift */; };
 		D6DA843D467584CCD97F07D1 /* CityScene+Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B8E7E47765976A6D3A526F /* CityScene+Input.swift */; };
 		D78B39A83BF5BA6CE49A793D /* GameplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D8DE154818EEAC14C09C6 /* GameplayTests.swift */; };
 		E8F5A49E7C9054C9B79FEB6B /* RenderSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9229CFD75F53E252EA907DD /* RenderSnapshot.swift */; };
@@ -63,6 +64,7 @@
 		F8542223224520DF1BCA394C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F9229CFD75F53E252EA907DD /* RenderSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderSnapshot.swift; sourceTree = "<group>"; };
 		FAF3483B3632D40B3ED0EEAF /* GameController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameController.swift; sourceTree = "<group>"; };
+		FCB63BDA5AC97B15796685CD /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
 		FEBCB4653A04CA2CA3E1CCB3 /* TrafficEngine */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TrafficEngine; path = TrafficEngine; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -163,6 +165,7 @@
 			children = (
 				6F6D8DE154818EEAC14C09C6 /* GameplayTests.swift */,
 				B070F2217B1DE271710436FA /* LaunchSmokeTests.swift */,
+				FCB63BDA5AC97B15796685CD /* PerformanceTests.swift */,
 				DC06B7046982EF6F4BDBD428 /* Screenshot.swift */,
 				2D374C325FFA4E5A614E548A /* ScreenshotTests.swift */,
 			);
@@ -275,6 +278,7 @@
 			files = (
 				D78B39A83BF5BA6CE49A793D /* GameplayTests.swift in Sources */,
 				7CE6F9E11EFA34694633B1E7 /* LaunchSmokeTests.swift in Sources */,
+				B78DA12BB51C22F5DF9ACC26 /* PerformanceTests.swift in Sources */,
 				3FD13F8584B39D14B6B150F9 /* Screenshot.swift in Sources */,
 				39244EE01A86B03605A72659 /* ScreenshotTests.swift in Sources */,
 			);

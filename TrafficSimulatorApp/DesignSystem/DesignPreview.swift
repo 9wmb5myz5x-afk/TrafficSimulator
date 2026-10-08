@@ -17,6 +17,31 @@ struct DesignPreview: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    section("Vehicles") {
+                        // Each type in three paints: the shape and the detail
+                        // layer (glass, roof, cargo box, livery) carry the type.
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(VehicleClass.allCases, id: \.self) { c in
+                                HStack(alignment: .center, spacing: 14) {
+                                    Text(String(describing: c).capitalized)
+                                        .font(.caption.weight(.semibold))
+                                        .frame(width: 52, alignment: .leading)
+                                    ForEach([1, 5, 9], id: \.self) { k in
+                                        vehicle(c, zoom: 9, paint: RGB(Theme.vehicleBodies[k % Theme.vehicleBodies.count]).color)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    section("Vehicles at map zooms") {
+                        ForEach([3.0, 5.0], id: \.self) { z in
+                            HStack(alignment: .center, spacing: 12) {
+                                ForEach(VehicleClass.allCases, id: \.self) { c in
+                                    vehicle(c, zoom: z, paint: RGB(Theme.vehicleBodies[3]).color)
+                                }
+                            }
+                        }
+                    }
                     section("Colour tokens") {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                             ForEach(Token.allCases, id: \.self) { t in
@@ -38,15 +63,6 @@ struct DesignPreview: View {
                                         building(k, scale: 3)
                                         Text(k.displayName).font(.caption2)
                                     }
-                                }
-                            }
-                        }
-                    }
-                    section("Vehicles at three zooms") {
-                        ForEach([2.0, 4.0, 8.0], id: \.self) { z in
-                            HStack(alignment: .center, spacing: 14) {
-                                ForEach(VehicleClass.allCases, id: \.self) { c in
-                                    vehicle(c, zoom: z)
                                 }
                             }
                         }
@@ -97,11 +113,17 @@ struct DesignPreview: View {
         .padding(.bottom, (1.2 + h * 1.1) * scale)
     }
 
-    private func vehicle(_ c: VehicleClass, zoom: CGFloat) -> some View {
-        image(Textures.vehicle(c))
-            .resizable()
-            .renderingMode(c == .police ? .original : .template)
-            .foregroundStyle(c == .police ? Color.clear : (c == .bus ? Theme.color(.uiAccent) : RGB(Theme.vehicleBodies[5]).color))
-            .frame(width: CGFloat(c.length) * zoom, height: CGFloat(c.width) * zoom)
+    /// As on the map: shadow, body tinted with the paint (police untinted),
+    /// then the untinted detail layer.
+    private func vehicle(_ c: VehicleClass, zoom: CGFloat, paint: Color) -> some View {
+        ZStack {
+            image(Textures.vehicleShape(c)).resizable()
+                .colorMultiply(.black).opacity(0.18)
+                .offset(x: 0.35 * zoom, y: 0.35 * zoom)
+            image(Textures.vehicle(c)).resizable()
+                .colorMultiply(c == .police ? .white : c == .bus ? Theme.color(.uiAccent) : paint)
+            image(Textures.vehicleTop(c)).resizable()
+        }
+        .frame(width: CGFloat(c.length) * zoom, height: CGFloat(c.width) * zoom)
     }
 }

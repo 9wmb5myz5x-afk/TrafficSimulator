@@ -313,13 +313,21 @@ extension Simulation {
             if busyNearby { continue }
             // Nobody on the first stretch of its own driveway (a long back-row
             // driveway passing this garage): the car would appear on top of them.
-            if let path = drivewayPath(for: b), kerbside.contains(where: { j in
-                guard j < vehicles.count else { return false }
-                let w = vehicles[j]
-                guard w.mode != .waitingToEnter, w.mode != .finished, w.center.distance(to: path.start) < path.length + 20 else { return false }
-                let p = path.project(w.center)
-                return p.distance < w.length / 2 + 2.5 && p.s < min(path.length, 14)
-            }) { continue }
+            // Its body starts mostly inside the garage, behind the path.
+            if let path = drivewayPath(for: b) {
+                let car = city.people.indices.contains(pid.raw) ? city.people[pid.raw].car : .car
+                let door = garageDoor(on: path, building: b, leaving: true)
+                let start = OrientedBox(center: path.point(at: door + 0.3) - path.startTangent * (car.length / 2),
+                                        axis: path.startTangent, halfLength: car.length / 2 + 0.5, halfWidth: car.width / 2 + 0.5)
+                if kerbside.contains(where: { j in
+                    guard j < vehicles.count else { return false }
+                    let w = vehicles[j]
+                    guard w.mode != .waitingToEnter, w.mode != .finished, w.center.distance(to: path.start) < path.length + 20 else { return false }
+                    if start.overlaps(w.footprint) { return true }
+                    let p = path.project(w.center)
+                    return p.distance < w.length / 2 + 2.5 && p.s < min(path.length, 14)
+                }) { continue }
+            }
             city.buildingSlots[k]?.departureQueue.removeFirst()
             guard pid.raw < city.people.count, let trip = city.people[pid.raw].plan.first,
                   let (route, destination, destLane, viaRegion) = planTrip(from: access, trip: trip, seed: UInt64(pid.raw) &* 31 &+ UInt64(dayIndex)) else {

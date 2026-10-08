@@ -125,6 +125,16 @@ Feedback: the app lags and freezes when tapping between items on busy maps; vehi
   - the overlay recolours only when its data changes;
   - the HUD and inspector update on their own, not the whole screen;
   - the simulation checks its time budget every step, so a tap never waits for more than one step.
+- [x] **Optimised builds.** Running from Xcode and the UI tests used the Debug configuration, where the simulation is many times slower than what a player installs (an edit on Stress City: 43 ms optimised, several seconds unoptimised). Run and Test now use Release (D34).
+- [x] **Statistics opens quickly.** The charts plotted up to 2,000 points each; they now get at most ~160 (the last 60 police calls in the bar chart).
+- [x] **Scripted in-app session** (`-perfProbe -perfScript`, `PerformanceTests.testScriptedSession*`). UI test queries take an accessibility snapshot each, which itself stalls the app on a big map, so the app drives the same actions itself and the test only reads the report. On the iPhone 16 Pro simulator, Stress City: worst frame 438 ms over the whole session, no hitch over 1 s, taps wait ≤ 80 ms for the simulation (baseline: up to 6.5 s).
+- [x] **Driving fixes found by soaking Stress City on both sides** (D33). These were there before this round and are now gone:
+  - a car turning into a driveway was listed in the lane where it left it, not where its front was;
+  - a car turning in up a long back-row driveway drove through a neighbour waiting at its mouth;
+  - a car left its garage on top of a car passing on a long driveway;
+  - cars on merging turn paths only followed each other once on the exit lane;
+  - a siren car eased back into a car alongside it;
+  - after an edit, a car inside a reshaped junction was re-anchored 0.4 m away (now it leaves, per D15).
 - [x] **Vehicles** read by type at a glance: a tinted body plus an untinted detail layer — cars with windscreen, rear window and roof; SUVs with roof rails; vans with a long roof, vent and door seams; trucks with a painted cab and a white ribbed box; buses with window bands and roof units; police in black and white with a light bar. Lamps are one sprite per group. Zoomed out, vehicles are drawn up to 1.6× larger so the shapes stay readable.
 
 ## Verification log
@@ -154,10 +164,7 @@ Feedback: the app lags and freezes when tapping between items on busy maps; vehi
 - L4–L5: CI `app-macos` (iPhone) and `app-devices` (iPhone SE, iPad).
 
 ## Known issues / next steps
-- Edit fuzzing (round 2, seeds 1–2) still finds two rare cases, both in long random-edit sequences rather than normal play:
-  - an undo of a restyle while a car is inside a junction moves it 0.4 m;
-  - on Empty Land, a sequence of edits leaves two roads between the same junctions.
-- Stress City at 80 min shows a few `stuck` reports from saturated signal queues (not deadlocks).
+- Stress City (deliberately saturated) still shows a rare `stuck` report from a long signal queue (one car held 300 s), not a deadlock or an overlap.
 - Highway interchanges are not built automatically. A drawn highway passes over the streets it crosses; ramps exist only in the Highway Town map.
 1. Sound: a placement click only (the system "Tock", which respects the mute switch). There is no ambient traffic audio; it is optional in the brief.
 2. The bundle identifier is the placeholder `com.example.TrafficSimulator`. Set your own team and bundle id before running on a device or shipping.

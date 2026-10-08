@@ -311,6 +311,15 @@ extension Simulation {
                         && abs(w.destination.s - access.s) < 12 && o.s > access.s - 30 && o.s < access.s + 4
                 }
             if busyNearby { continue }
+            // Nobody on the first stretch of its own driveway (a long back-row
+            // driveway passing this garage): the car would appear on top of them.
+            if let path = drivewayPath(for: b), kerbside.contains(where: { j in
+                guard j < vehicles.count else { return false }
+                let w = vehicles[j]
+                guard w.mode != .waitingToEnter, w.mode != .finished, w.center.distance(to: path.start) < path.length + 20 else { return false }
+                let p = path.project(w.center)
+                return p.distance < w.length / 2 + 2.5 && p.s < min(path.length, 14)
+            }) { continue }
             city.buildingSlots[k]?.departureQueue.removeFirst()
             guard pid.raw < city.people.count, let trip = city.people[pid.raw].plan.first,
                   let (route, destination, destLane, viaRegion) = planTrip(from: access, trip: trip, seed: UInt64(pid.raw) &* 31 &+ UInt64(dayIndex)) else {

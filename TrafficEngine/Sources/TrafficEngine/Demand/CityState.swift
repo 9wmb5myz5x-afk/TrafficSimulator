@@ -600,6 +600,9 @@ extension Simulation {
                 // A car stopped behind, waiting to turn into this driveway, waits for us.
                 if w.mode == .driving, w.speed < 0.5, w.isOnFinalEdge, w.destination.kind == .building,
                    w.destination.edge == e, abs(w.destination.s - v.s) < 14, o.s < v.s - v.length - 1 { continue }
+                // A car turning in up a long driveway, stopped because we are
+                // on its path (its rear still in the lane): we go first.
+                if w.mode == .onDriveway, w.driveway?.inbound == true, drivewayObstacle(Int(o.index))?.index == i { continue }
                 let ahead = o.s - w.length - v.s           // gap to a vehicle ahead
                 let behind = v.s - v.length - o.s          // gap from a vehicle behind
                 if ahead > -v.length - 1 && ahead < 8 { return false }
@@ -640,7 +643,8 @@ extension Simulation {
         // Other cars pulling out of or into driveways next door.
         for j in kerbside where j != i && j < vehicles.count && (vehicles[j].mode == .pullingOut || vehicles[j].mode == .pullingIn
                                                                  || (vehicles[j].mode == .onDriveway && vehicles[j].driveway?.inbound == true)) {
-            if case .edge(let ej) = vehicles[j].track, ej == e, abs(vehicles[j].s - v.s) < 14 { return false }
+            if case .edge(let ej) = vehicles[j].track, ej == e, abs(vehicles[j].s - v.s) < 14,
+               !(vehicles[j].mode == .onDriveway && drivewayObstacle(j)?.index == i) { return false }
         }
         return true
     }

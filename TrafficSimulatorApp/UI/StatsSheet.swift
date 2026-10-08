@@ -31,7 +31,8 @@ struct StatsSheet: View {
                             } else {
                                 let mean = data.responseTimes.reduce(0, +) / Double(data.responseTimes.count)
                                 LabeledContent("Mean response", value: String(format: "%.1f min", mean / 60))
-                                Chart(Array(data.responseTimes.enumerated()), id: \.offset) { item in
+                                // The latest 60 calls (the mean above covers them all).
+                                Chart(Array(data.responseTimes.suffix(60).enumerated()), id: \.offset) { item in
                                     BarMark(x: .value("Call", item.offset), y: .value("Minutes", item.element / 60))
                                         .foregroundStyle(Theme.color(.policeBlue))
                                 }

@@ -714,7 +714,13 @@ final class GameController: ObservableObject {
                 rows.append(JunctionRow(id: n.id.raw, name: "\(n.id) · \(n.effectiveControl.displayName)", los: m.los, delay: m.averageDelay))
             }
             rows.sort { $0.delay > $1.delay }
-            return StatsData(history: sim.metrics.history, junctions: rows, responseTimes: sim.police.responseTimes)
+            // At most ~160 points a chart: thousands of line marks take Swift
+            // Charts seconds to lay out, and a 110 pt chart can't show them.
+            let all = sim.metrics.history
+            let stride = max(1, all.count / 160)
+            var history = Swift.stride(from: 0, to: all.count, by: stride).map { all[$0] }
+            if let last = all.last, history.last?.time != last.time { history.append(last) }
+            return StatsData(history: history, junctions: rows, responseTimes: sim.police.responseTimes)
         }, completion: completion)
     }
 }

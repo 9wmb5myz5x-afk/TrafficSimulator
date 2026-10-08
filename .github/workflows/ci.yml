@@ -202,6 +202,7 @@ jobs:
             -only-testing:TrafficSimulatorUITests/GameplayTests \
             -only-testing:TrafficSimulatorUITests/ScreenshotTests/testInspectorStatsAndOverlays \
             -only-testing:TrafficSimulatorUITests/ScreenshotTests/testPortraitLayoutAndTrafficDial \
+            -only-testing:TrafficSimulatorUITests/PerformanceTests \
             -resultBundlePath artifacts/UITests.xcresult | tail -40
 
       - name: Collect diagnostics

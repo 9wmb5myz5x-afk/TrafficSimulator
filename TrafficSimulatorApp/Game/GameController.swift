@@ -54,6 +54,8 @@ final class GameController: ObservableObject {
     @Published private(set) var lastSaved: Date?
 
     let buffer = SnapshotBuffer()
+    /// Frame / queue-latency probe (UI tests, `-perfProbe`).
+    let probe = PerfProbe()
 
     // MARK: Simulation (sim queue only)
     private let simQueue = DispatchQueue(label: "traffic.sim", qos: .userInitiated)
@@ -118,6 +120,7 @@ final class GameController: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
+        probe.start { [weak self] done in self?.simQueue.async(execute: done) }
         let t = DispatchSource.makeTimerSource(queue: simQueue)
         t.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
         t.setEventHandler { [weak self] in self?.tick() }
@@ -434,6 +437,7 @@ final class GameController: ObservableObject {
 
     private func tick() {
         let now = CACurrentMediaTime()
+
         let real = min(now - lastTick, 0.25)
         lastTick = now
         var stepped = 0

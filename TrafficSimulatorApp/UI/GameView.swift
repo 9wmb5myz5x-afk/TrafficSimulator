@@ -30,6 +30,7 @@ struct GameView: View {
 
     var body: some View {
         ZStack {
+            if PerfProbe.enabled { PerfProbeView(probe: game.probe) }
             SpriteView(scene: scene, options: [.ignoresSiblingOrder])
                 .ignoresSafeArea()
                 .accessibilityIdentifier("city.map")
@@ -588,5 +589,85 @@ struct DebugOverlay: View {
         .floatingSurface(radius: 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("debug.overlay")
+    }
+}
+
+// MARK: - Performance probe (UI tests)
+
+/// Frame-time probe, on with the launch argument `-perfProbe` (UI tests).
+/// Counts main-thread hitches (frames that took too long) and how long work
+/// waits for the simulation queue, and publishes a summary the tests read
+/// through accessibility.
+final class PerfProbe: ObservableObject {
+    static let enabled = ProcessInfo.processInfo.arguments.contains("-perfProbe")
+
+    @Published private(set) var summary = "frames=0"
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var lastPublish: CFTimeInterval = 0
+    private var frames = 0, over50 = 0, over100 = 0, over250 = 0, over1000 = 0
+    private var maxMs = 0.0
+    /// Recent frame times (time, ms) for the max over the last few seconds.
+    private var recent: [(CFTimeInterval, Double)] = []
+    /// Simulation-queue wait times, recent (time, ms).
+    private var simWaits: [(CFTimeInterval, Double)] = []
+
+    /// Runs a block on the simulation queue (set by the controller).
+    private var throughSim: ((@escaping () -> Void) -> Void)?
+    private var lastPing: CFTimeInterval = 0
+
+    func start(throughSim: @escaping (@escaping () -> Void) -> Void) {
+        guard Self.enabled, link == nil else { return }
+        self.throughSim = throughSim
+        let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        l.add(to: .main, forMode: .common)
+        link = l
+    }
+
+    /// A ping that went through the simulation queue (main thread).
+    func simWait(_ ms: Double) {
+        simWaits.append((CACurrentMediaTime(), ms))
+    }
+
+    @objc private func tick(_ l: CADisplayLink) {
+        let t = l.timestamp
+        if last > 0 {
+            let ms = (t - last) * 1000
+            frames += 1
+            maxMs = max(maxMs, ms)
+            if ms > 50 { over50 += 1 }
+            if ms > 100 { over100 += 1 }
+            if ms > 250 { over250 += 1 }
+            if ms > 1000 { over1000 += 1 }
+            recent.append((t, ms))
+        }
+        last = t
+        if t - lastPing > 0.25, let throughSim {
+            // How long a tap's work would wait behind the simulation.
+            lastPing = t
+            let sent = CACurrentMediaTime()
+            throughSim { DispatchQueue.main.async { [weak self] in self?.simWait((CACurrentMediaTime() - sent) * 1000) } }
+        }
+        recent.removeAll { t - $0.0 > 4 }
+        simWaits.removeAll { t - $0.0 > 4 }
+        if t - lastPublish > 0.5 {
+            lastPublish = t
+            let recentMax = recent.map(\.1).max() ?? 0
+            let simMax = simWaits.map(\.1).max() ?? 0
+            summary = "frames=\(frames);max=\(Int(maxMs));recentMax=\(Int(recentMax));h50=\(over50);h100=\(over100);h250=\(over250);h1000=\(over1000);simWait=\(Int(simMax))"
+        }
+    }
+}
+
+private struct PerfProbeView: View {
+    @ObservedObject var probe: PerfProbe
+    var body: some View {
+        Text(probe.summary)
+            .font(.system(size: 2))
+            .opacity(0.02)
+            .frame(width: 4, height: 4)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("perf.probe")
+            .accessibilityValue(probe.summary)
     }
 }

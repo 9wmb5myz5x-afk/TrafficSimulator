@@ -26,11 +26,21 @@ struct GameView: View {
     @State private var showSave = false
     @State private var showTraffic = false
     @State private var toast: EditFeedback?
+    @State private var perfReport = "running"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if PerfProbe.enabled { PerfProbeView(probe: game.probe) }
+            if PerfProbe.enabled {
+                PerfProbeView(probe: game.probe)
+                Text("perf")
+                    .font(.system(size: 2))
+                    .opacity(0.02)
+                    .frame(width: 4, height: 4)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("perf.script")
+                    .accessibilityValue(perfReport)
+            }
             SpriteView(scene: scene, options: [.ignoresSiblingOrder])
                 .ignoresSafeArea()
                 .accessibilityIdentifier("city.map")
@@ -90,6 +100,7 @@ struct GameView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showSave) { SaveSheet(game: game) }
+        .task { if PerfProbe.enabled && PerfProbe.scripted { await runPerfScript() } }
         .onAppear {
             scene.controller = game
             scene.reduceMotion = reduceMotion
@@ -600,6 +611,8 @@ struct DebugOverlay: View {
 /// through accessibility.
 final class PerfProbe: ObservableObject {
     static let enabled = ProcessInfo.processInfo.arguments.contains("-perfProbe")
+    /// The app drives a scripted session itself (see `GameView.runPerfScript`).
+    static let scripted = ProcessInfo.processInfo.arguments.contains("-perfScript")
 
     @Published private(set) var summary = "frames=0"
     private var link: CADisplayLink?
@@ -627,6 +640,26 @@ final class PerfProbe: ObservableObject {
     /// A ping that went through the simulation queue (main thread).
     func simWait(_ ms: Double) {
         simWaits.append((CACurrentMediaTime(), ms))
+        windowSim = max(windowSim, ms)
+    }
+
+    // A measurement window around one action of the scripted session.
+    private var windowMax = 0.0, windowSim = 0.0
+    private var windowStart = (frames: 0, h100: 0, h250: 0, h1000: 0)
+
+    func beginWindow() {
+        windowMax = 0; windowSim = 0
+        windowStart = (frames, over100, over250, over1000)
+    }
+
+    func endWindow(_ name: String) -> String {
+        String(format: "%-26@ frames=%4d hitches>100ms=%2d >250ms=%2d >1s=%d  worstFrame=%5dms  simQueueWait=%4dms",
+               name as NSString, frames - windowStart.frames, over100 - windowStart.h100, over250 - windowStart.h250,
+               over1000 - windowStart.h1000, Int(windowMax), Int(windowSim))
+    }
+
+    var totals: String {
+        "total: frames=\(frames) worstFrame=\(Int(maxMs))ms hitches>100ms=\(over100) >250ms=\(over250) >1s=\(over1000)"
     }
 
     @objc private func tick(_ l: CADisplayLink) {
@@ -640,13 +673,19 @@ final class PerfProbe: ObservableObject {
             if ms > 250 { over250 += 1 }
             if ms > 1000 { over1000 += 1 }
             recent.append((t, ms))
+            windowMax = max(windowMax, ms)
         }
         last = t
         if t - lastPing > 0.25, let throughSim {
             // How long a tap's work would wait behind the simulation.
             lastPing = t
             let sent = CACurrentMediaTime()
-            throughSim { DispatchQueue.main.async { [weak self] in self?.simWait((CACurrentMediaTime() - sent) * 1000) } }
+            throughSim {
+                // Measured on the simulation queue: the main thread's own
+                // stalls show in the frame times, not here.
+                let waited = (CACurrentMediaTime() - sent) * 1000
+                DispatchQueue.main.async { [weak self] in self?.simWait(waited) }
+            }
         }
         recent.removeAll { t - $0.0 > 4 }
         simWaits.removeAll { t - $0.0 > 4 }
@@ -692,3 +731,71 @@ private struct LiveInspector: View {
         if let info = model.info { InspectorCard(info: info, onClose: onClose) }
     }
 }
+
+// MARK: - Scripted performance session (`-perfProbe -perfScript`)
+
+extension GameView {
+    /// Drives a session through the controller (tools, overlays, sheets,
+    /// selection, edits, speeds) and times each action with the probe. No UI
+    /// test queries run meanwhile (they stall the app themselves), so this is
+    /// what a player feels. The report ends up in `perf.script`.
+    @MainActor func runPerfScript() async {
+        let probe = game.probe
+        var lines: [String] = []
+        func wait(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+        func step(_ name: String, settle: Double = 1.5, _ action: () -> Void) async -> String {
+            probe.beginWindow()
+            action()
+            await wait(settle)
+            return probe.endWindow(name)
+        }
+        func ask<T>(_ body: @escaping (Simulation) -> T) async -> T {
+            await withCheckedContinuation { c in game.query(body) { c.resume(returning: $0) } }
+        }
+        await wait(6)
+        lines.append(await step("idle at 1x", settle: 4) {})
+        lines.append(await step("speed 10x (idle 5 s)", settle: 5) { game.speed = 10 })
+        for c in PaletteCategory.allCases where c != .inspect {
+            lines.append(await step("palette \(c.rawValue)") { game.tool = c.tools[0] })
+        }
+        lines.append(await step("palette inspect") { game.tool = .inspect })
+        for k in 1...3 {
+            lines.append(await step("overlay cycle \(k)", settle: 2.5) {
+                let all = MapOverlay.allCases
+                game.overlay = all[((all.firstIndex(of: game.overlay) ?? 0) + 1) % all.count]
+            })
+        }
+        lines.append(await step("traffic sheet open") { showTraffic = true })
+        lines.append(await step("traffic preset heavy") { game.setTrafficLevel(3) })
+        lines.append(await step("traffic sheet close") { showTraffic = false })
+        lines.append(await step("stats open", settle: 2) { showStats = true })
+        lines.append(await step("stats close") { showStats = false })
+        // Select cars, a building and a road, as taps on the map would.
+        let targets = await ask { sim -> [Vector2] in
+            var pts = sim.vehicles.filter { $0.mode == .driving }.prefix(3).map(\.center)
+            if let b = sim.city.buildings.first { pts.append(b.center) }
+            return pts
+        }
+        for (k, p) in targets.enumerated() {
+            lines.append(await step("select \(k + 1)") { game.select(at: p, radius: 5) })
+        }
+        lines.append(await step("clear selection") { game.clearSelection() })
+        lines.append(await step("show whole city") { scene.showWholeCity() })
+        // An edit through the middle of town, a house beside a road, undo both.
+        let (lo, hi) = await ask { ($0.terrain.minCorner, $0.terrain.maxCorner) }
+        let w = hi - lo
+        let a = lo + Vector2(w.x * 0.3, w.y * 0.45), b = lo + Vector2(w.x * 0.7, w.y * 0.47)
+        game.tool = .drawRoad
+        lines.append(await step("draw road", settle: 3) { game.drawRoad([a, (a + b) * 0.5, b]) })
+        game.tool = .building(.house)
+        let spot = targets.first.map { $0 + Vector2(9, 9) } ?? (a + b) * 0.5
+        lines.append(await step("place a house", settle: 2) { game.toolTap(at: spot, radius: 6) })
+        lines.append(await step("undo", settle: 2) { game.undo() })
+        lines.append(await step("undo again", settle: 2) { game.undo() })
+        game.tool = .inspect
+        lines.append(await step("speed 30x (idle 6 s)", settle: 6) { game.speed = 30 })
+        lines.append(probe.totals)
+        perfReport = "done\n" + lines.joined(separator: "\n")
+    }
+}
+

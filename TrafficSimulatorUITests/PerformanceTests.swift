@@ -135,6 +135,31 @@ final class PerformanceTests: XCTestCase {
 
     func testResponsivenessDowntown() { runSession(map: "downtown") }
     func testResponsivenessStressCity() { runSession(map: "stressCity") }
+
+    /// The same actions driven by the app itself (`-perfScript`): the test
+    /// only waits, then reads the report once. UI test queries stall the app
+    /// on a big map (an accessibility snapshot each), so this is the clean
+    /// measure of what a player feels.
+    private func scriptedSession(map: String) {
+        let app = XCUIApplication()
+        app.launchArguments = ["-openCity", map, "-startHour", "7.5", "-perfProbe", "-perfScript"]
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        pause(80)
+        let report = app.descendants(matching: .any)["perf.script"]
+        var text = (report.value as? String) ?? ""
+        var tries = 0
+        while !text.hasPrefix("done") && tries < 12 {
+            pause(10); tries += 1
+            text = (report.value as? String) ?? ""
+        }
+        XCTAssertTrue(text.hasPrefix("done"), "\(map): the scripted session finished")
+        Report.write("map: \(map)  device: \(UIDevice.current.name)  (in-app script)\n" + text.dropFirst(5), named: "perfscript-\(map)")
+        XCTAssertEqual(app.state, .runningForeground, "\(map): the app kept running")
+    }
+
+    func testScriptedSessionDowntown() { scriptedSession(map: "downtown") }
+    func testScriptedSessionStressCity() { scriptedSession(map: "stressCity") }
 }
 
 /// Text reports next to the screenshots (CI publishes them).
